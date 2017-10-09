@@ -43,11 +43,10 @@ class VOCClassSegBase(data.Dataset):
         self._transform = transform
 
         # VOC2011 and others are subset of VOC2012
-        dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
+        dataset_dir = self.root + '/VOCdevkit/VOC2012'
         self.files = collections.defaultdict(list)
         for split in ['train', 'val']:
-            imgsets_file = osp.join(
-                dataset_dir, 'ImageSets/Segmentation/%s.txt' % split)
+            imgsets_file = dataset_dir + '/ImageSets/Segmentation/%s.txt' % split
             for did in open(imgsets_file):
                 did = did.strip()
                 img_file = osp.join(dataset_dir, 'JPEGImages/%s.jpg' % did)
@@ -105,7 +104,7 @@ class VOC2011ClassSeg(VOCClassSegBase):
         imgsets_file = osp.join(
             pkg_root, 'ext/fcn.berkeleyvision.org',
             'data/pascal/seg11valid.txt')
-        dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
+        dataset_dir = osp.join(self.root, 'VOCdevkit/VOC2012')
         for did in open(imgsets_file):
             did = did.strip()
             img_file = osp.join(dataset_dir, 'JPEGImages/%s.jpg' % did)
@@ -132,7 +131,7 @@ class SBDClassSeg(VOCClassSegBase):
         self.split = split
         self._transform = transform
 
-        dataset_dir = osp.join(self.root, 'VOC/benchmark_RELEASE/dataset')
+        dataset_dir = self.root + '/VOCdevkit/VOC2012/benchmark_RELEASE/dataset'
         self.files = collections.defaultdict(list)
         for split in ['train', 'val']:
             imgsets_file = osp.join(dataset_dir, '%s.txt' % split)

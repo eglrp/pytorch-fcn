@@ -1,5 +1,8 @@
 *.egg-info/
 *.py[cdo]
-
+*.idea
 build/
 dist/
+
+*.pth
+*.tar

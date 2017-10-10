@@ -4,5 +4,8 @@
 build/
 dist/
 
+alaki*
+
 *.pth
 *.tar
+logs/

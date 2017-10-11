@@ -18,7 +18,7 @@ configurations = {
     # same configuration as original work
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
-        max_iteration=100000,
+        max_iteration=150000,
         lr=1.0e-10,
         momentum=0.99,
         weight_decay=0.0005,
@@ -112,6 +112,10 @@ def main():
         torchfcn.datasets.VOC2012ClassSeg(root, split='train', transform=True),
         batch_size=1, shuffle=True, **kwargs)
 
+    train_loader_nolbl = torch.utils.data.DataLoader(
+        torchfcn.datasets.SBDClassSeg(root, split='train', transform=True),
+        batch_size=1, shuffle=True, **kwargs)
+
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(root, split='seg11valid', transform=True),
         batch_size=1, shuffle=False, **kwargs)
@@ -151,9 +155,11 @@ def main():
         model=model,
         optimizer=optim,
         train_loader=train_loader,
+        train_loader_nolbl=train_loader_nolbl,
         val_loader=val_loader,
         out=out,
         max_iter=cfg['max_iteration'],
+        prior=None,
         interval_validate=cfg.get('interval_validate', len(train_loader)),
     )
     trainer.epoch = start_epoch

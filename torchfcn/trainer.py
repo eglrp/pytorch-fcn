@@ -14,6 +14,9 @@ import torch.nn.functional as F
 import tqdm
 
 import torchfcn
+import torch.nn as nn
+import matplotlib.pyplot as plt
+import pdb
 
 
 def cross_entropy2d(input, target, weight=None, size_average=True):
@@ -34,16 +37,37 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
     return loss
 
 
+def compute_pseudo_target(score, prior):
+    softmax = nn.Softmax2d()
+    probs = softmax(score)
+
+    n, c, h, w = probs.size()
+    if prior is not None:
+        prior_mat = prior.view(1, c, 1, 1).repeat(n, 1, h, w)
+        probs = probs * prior_mat
+    probs_t = probs.permute(1, 0, 2, 3)
+    sum_probs = probs_t.view(c,-1).sum(-1) # for minibatches of size larger than one,
+    # we use pixels of all images to compute the class assignment statistics
+    norm_factor = torch.sqrt(sum_probs)
+    norm_factor = norm_factor.view(1, c, 1, 1).repeat(n, 1, h, w)
+    pseudo_gt = probs / norm_factor
+    z = pseudo_gt.sum(1).unsqueeze(1).repeat(1, c, 1, 1)
+    pseudo_gt = pseudo_gt / z
+    return pseudo_gt
+
+
 class Trainer(object):
 
     def __init__(self, cuda, model, optimizer,
-                 train_loader, val_loader, out, max_iter,
+                 train_loader, train_loader_nolbl, val_loader, out, max_iter, prior=None,
                  size_average=False, interval_validate=None):
         self.cuda = cuda
 
         self.model = model
         self.optim = optimizer
+        self.prior = prior
 
+        self.train_loader_nolbl = train_loader_nolbl
         self.train_loader = train_loader
         self.val_loader = val_loader
 
@@ -159,6 +183,10 @@ class Trainer(object):
 
         n_class = len(self.train_loader.dataset.class_names)
 
+
+        #########################################
+        ### An epoch over the fully-labeled data:
+        #########################################
         for batch_idx, (data, target) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
@@ -168,6 +196,7 @@ class Trainer(object):
             self.iteration = iteration
 
             if self.iteration % self.interval_validate == 0:
+                #pdb.set_trace()
                 self.validate()
 
             if self.cuda:
@@ -205,6 +234,65 @@ class Trainer(object):
 
             if self.iteration >= self.max_iter:
                 break
+
+        if (0):
+            #########################################
+            ### An epoch over the unlabeled data:
+            #########################################
+            for batch_idx, (data, target) in tqdm.tqdm(
+                    enumerate(self.train_loader_nolbl), total=len(self.train_loader_nolbl),
+                    desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
+                iteration = batch_idx + self.epoch * len(self.train_loader_nolbl)
+                if self.iteration != 0 and (iteration - 1) != self.iteration:
+                    continue  # for resuming
+                self.iteration = iteration
+
+                if self.iteration % self.interval_validate == 0:
+                    self.validate()
+
+                if self.cuda:
+                    data, target = data.cuda(), target.cuda()
+                data, target = Variable(data), Variable(target)
+                self.optim.zero_grad()
+                score = self.model(data)
+
+                pdb.set_trace()
+                #################
+                # Estimating pseudo-GT
+                pseudo_target = compute_pseudo_target(score, self.prior)
+                target = pseudo_target.data.max(1)[1]
+                #################
+
+                loss = cross_entropy2d(score, target,
+                                       size_average=self.size_average)
+                loss /= len(data)
+                if np.isnan(float(loss.data[0])):
+                    raise ValueError('loss is nan while training')
+                loss.backward()
+                self.optim.step()
+
+                metrics = []
+                lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
+                lbl_true = target.data.cpu().numpy()
+                for lt, lp in zip(lbl_true, lbl_pred):
+                    acc, acc_cls, mean_iu, fwavacc = \
+                        torchfcn.utils.label_accuracy_score(
+                            [lt], [lp], n_class=n_class)
+                    metrics.append((acc, acc_cls, mean_iu, fwavacc))
+                metrics = np.mean(metrics, axis=0)
+
+                with open(osp.join(self.out, 'log.csv'), 'a') as f:
+                    elapsed_time = (
+                        datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                        self.timestamp_start).total_seconds()
+                    log = [self.epoch, self.iteration] + [loss.data[0]] + \
+                        metrics.tolist() + [''] * 5 + [elapsed_time]
+                    log = map(str, log)
+                    f.write(','.join(log) + '\n')
+
+                if self.iteration >= self.max_iter:
+                    break
+
 
     def train(self):
         max_epoch = int(math.ceil(1. * self.max_iter / len(self.train_loader)))

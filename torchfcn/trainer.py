@@ -13,6 +13,8 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import tqdm
 
+import copy
+
 import torchfcn
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -163,6 +165,7 @@ class Trainer(object):
             f.write(','.join(log) + '\n')
 
         mean_iu = metrics[2]
+        print('\n iteration {}: mean_iu={}\n'.format(self.iteration, mean_iu))
         is_best = mean_iu > self.best_mean_iu
         if is_best:
             self.best_mean_iu = mean_iu
@@ -190,7 +193,8 @@ class Trainer(object):
         for batch_idx, (data, target) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
-            iteration = batch_idx + self.epoch * len(self.train_loader)
+            iteration = batch_idx + self.epoch * len(self.train_loader) #\
+                                  #+ self.epoch * len(self.train_loader_nolbl)
             if self.iteration != 0 and (iteration - 1) != self.iteration:
                 continue  # for resuming
             self.iteration = iteration
@@ -239,16 +243,23 @@ class Trainer(object):
             #########################################
             ### An epoch over the unlabeled data:
             #########################################
+
+            old_model = copy.deepcopy(self.model)
+
             for batch_idx, (data, target) in tqdm.tqdm(
                     enumerate(self.train_loader_nolbl), total=len(self.train_loader_nolbl),
                     desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
-                iteration = batch_idx + self.epoch * len(self.train_loader_nolbl)
+                iteration = batch_idx + (self.epoch) * len(self.train_loader_nolbl) \
+                                      + (self.epoch + 1) * len(self.train_loader)
+
                 if self.iteration != 0 and (iteration - 1) != self.iteration:
                     continue  # for resuming
+
                 self.iteration = iteration
 
                 if self.iteration % self.interval_validate == 0:
                     self.validate()
+                    #pdb.set_trace()
 
                 if self.cuda:
                     data, target = data.cuda(), target.cuda()
@@ -256,12 +267,22 @@ class Trainer(object):
                 self.optim.zero_grad()
                 score = self.model(data)
 
-                pdb.set_trace()
+
                 #################
+                #tar = target.cpu().data.numpy()[0]
+                old_score = old_model(data)
                 # Estimating pseudo-GT
-                pseudo_target = compute_pseudo_target(score, self.prior)
-                target = pseudo_target.data.max(1)[1]
+                pseudo_target = compute_pseudo_target(old_score, self.prior)
+                conf, ps = pseudo_target.data.max(1)
+                # confn = conf.cpu().numpy()
+                # psn = ps.cpu().numpy()
+                # pdb.set_trace()
+                #ps[conf<.9] = -1
+                target = Variable(ps)
                 #################
+
+                if (ps.max()==-1):
+                    continue
 
                 loss = cross_entropy2d(score, target,
                                        size_average=self.size_average)

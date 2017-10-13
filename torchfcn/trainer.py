@@ -45,8 +45,8 @@ def compute_pseudo_target(score, prior):
 
     n, c, h, w = probs.size()
     if prior is not None:
-        prior_mat = prior.view(1, c, 1, 1).repeat(n, 1, h, w)
-        probs = probs * prior_mat
+        prior_mat = prior.view(1, c, 1, 1).repeat(n, 1, h, w).float().cuda()
+        probs = probs * Variable(prior_mat)
     probs_t = probs.permute(1, 0, 2, 3)
     sum_probs = probs_t.view(c,-1).sum(-1) # for minibatches of size larger than one,
     # we use pixels of all images to compute the class assignment statistics
@@ -244,7 +244,9 @@ class Trainer(object):
             ### An epoch over the unlabeled data:
             #########################################
 
+            # NOTE This:
             old_model = copy.deepcopy(self.model)
+            #
 
             for batch_idx, (data, target) in tqdm.tqdm(
                     enumerate(self.train_loader_nolbl), total=len(self.train_loader_nolbl),

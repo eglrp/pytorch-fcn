@@ -6,6 +6,7 @@ import os
 import os.path as osp
 import shlex
 import subprocess
+import numpy as np
 
 import pytz
 import torch
@@ -149,6 +150,14 @@ def main():
         weight_decay=cfg['weight_decay'])
     if resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
+
+    label_prior = np.array([1.82e+08, 1.78e+06, 7.58e+05, 2.23e+06, 1.51e+06,
+                   1.52e+06, 4.38e+06, 3.49e+06, 6.75e+06, 2.86e+06,
+                   2.06e+06, 3.38e+06, 4.34e+06, 2.28e+06, 2.89e+06,
+                   1.20e+07, 1.67e+06, 2.25e+06, 3.61e+06, 3.98e+06, 2.35e+06])
+    label_prior = label_prior / label_prior.sum()
+    label_prior = label_prior.astype(np.float64)
+    label_prior = torch.from_numpy(1-label_prior)
 
     trainer = torchfcn.Trainer(
         cuda=cuda,

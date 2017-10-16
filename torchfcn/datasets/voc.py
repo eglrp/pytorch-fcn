@@ -8,6 +8,7 @@ import PIL.Image
 import scipy.io
 import torch
 from torch.utils import data
+import cv2
 
 
 class VOCClassSegBase(data.Dataset):
@@ -78,6 +79,8 @@ class VOCClassSegBase(data.Dataset):
 
     def transform(self, img, lbl):
         img = img[:, :, ::-1]  # RGB -> BGR
+        img = cv2.resize(img, (256,256), interpolation=cv2.INTER_CUBIC)
+        lbl = cv2.resize(lbl, (256,256), interpolation=cv2.INTER_NEAREST)
         img = img.astype(np.float64)
         img -= self.mean_bgr
         img = img.transpose(2, 0, 1)

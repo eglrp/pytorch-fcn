@@ -66,6 +66,7 @@ class Trainer_siam(object):
         self.cuda = cuda
 
         self.model, self.merge = model
+        self.model_fixed = copy.deepcopy(self.model)
         self.optim = optimizer
         self.prior = prior
 
@@ -118,7 +119,7 @@ class Trainer_siam(object):
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data, target) in tqdm.tqdm(
+        for batch_idx, (data_1, target_1) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
@@ -128,29 +129,43 @@ class Trainer_siam(object):
             data_1, target_1 = Variable(data_1), Variable(target_1)
 
             feats_1 = self.model(data_1)
+            feats_1_sim = self.model_fixed(data_1)
+
+            if batch_idx%50==0:
+                pdb.set_trace()
 
             for batch_idx_2, (data_2, target_2) in enumerate(self.train_loader):
 
                 if self.cuda:
                     data_2, target_2 = data_2.cuda(), target_2.cuda()
                 data_2, target_2 = Variable(data_2), Variable(target_2)
-                target = target_1.eq(target_2)
+                target = target_1.eq(target_2).long()
 
                 feats_2 = self.model(data_2)
+                feats_2_sim = self.model_fixed(data_2)
                 score = self.merge(feats_1, feats_2)
-                target = F.upsample_nearest(target, score.size()[2:])
 
-                loss = cross_entropy2d(score, target, size_average=self.size_average)
+                similarity = F.cosine_similarity(feats_1_sim.view(len(data_1),-1), feats_2_sim.view(len(data_1),-1))
+
+                if (np.squeeze(similarity.cpu().data.numpy()) < 0.5):
+                    continue
+
+                """
+                img1 = data_1.cpu().data.numpy()[0].transpose(1,2,0)
+                img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
+                lbl1 = target_1.cpu().data.numpy()[0]
+                lbl2 = target_2.cpu().data.numpy()[0]
+                lbleq = target.cpu().data.numpy()[0]
+                """
+
+                upscore = F.upsample(score, target.size()[1:], mode='bilinear')
+
+                loss = cross_entropy2d(upscore, target, size_average=self.size_average)
                 if np.isnan(float(loss.data[0])):
                     raise ValueError('loss is nan while validating')
-                val_loss += float(loss.data[0]) / len(data)
+                val_loss += float(loss.data[0]) / len(data_1)
 
-                imgs_1 = data_1.data.cpu()
-                imgs_2 = data_2.data.cpu()
-                lbls_1 = target_1.data.cpu()
-                lbls_2 = target_2.data.cpu()
-                lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
-                lbl_true = target.data.cpu()
+                #lbl_pred = score.cpu().data.numpy().max(1)[1]
 
         val_loss /= len(self.val_loader)
         print('\nval_loss = {}\n'.format(val_loss))
@@ -180,6 +195,7 @@ class Trainer_siam(object):
             data_1, target_1 = Variable(data_1), Variable(target_1)
 
             feats_1 = self.model(data_1)
+            feats_1_sim = self.model_fixed(data_1)
 
             for batch_idx_2, (data_2, target_2) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
@@ -195,22 +211,23 @@ class Trainer_siam(object):
                 self.optim.zero_grad()
 
                 feats_2 = self.model(data_2)
+                feats_2_sim = self.model_fixed(data_2)
                 score = self.merge(feats_1, feats_2)
 
-                similarity = F.cosine_similarity(feats_1.view(len(data_1),-1), feats_2.view(len(data_1),-1))
+                similarity = F.cosine_similarity(feats_1_sim.view(len(data_1),-1), feats_2_sim.view(len(data_1),-1))
                 ### OR:
                 #dissimilarity = 1 - score.sum()/(score.size()[2] * score.size()[3] * score.max())
 
+                if (np.squeeze(similarity.cpu().data.numpy()) < 0.5):
+                    continue
+
+                """
                 img1 = data_1.cpu().data.numpy()[0].transpose(1,2,0)
                 img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
                 lbl1 = target_1.cpu().data.numpy()[0]
                 lbl2 = target_2.cpu().data.numpy()[0]
                 lbleq = target.cpu().data.numpy()[0]
-
-                if (np.squeeze(similarity.cpu().data.numpy()) < 0.5):
-                    continue
-
-                pdb.set_trace()
+                """
 
                 upscore = F.upsample(score, target.size()[1:], mode='bilinear')
 

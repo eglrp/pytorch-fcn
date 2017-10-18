@@ -19,6 +19,8 @@ import torchfcn
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import pdb
+from sklearn.metrics.pairwise import cosine_similarity
+from torchvision import models as torchmodels
 
 
 def cross_entropy2d(input, target, weight=None, size_average=True):
@@ -38,25 +40,7 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
         loss /= mask.data.sum()
     return loss
 
-
-def compute_pseudo_target(score, prior):
-    softmax = nn.Softmax2d()
-    probs = softmax(score)
-
-    n, c, h, w = probs.size()
-    if prior is not None:
-        prior_mat = prior.view(1, c, 1, 1).repeat(n, 1, h, w).float().cuda()
-        probs = probs * Variable(prior_mat)
-    probs_t = probs.permute(1, 0, 2, 3)
-    sum_probs = probs_t.view(c,-1).sum(-1) # for minibatches of size larger than one,
-    # we use pixels of all images to compute the class assignment statistics
-    norm_factor = torch.sqrt(sum_probs)
-    norm_factor = norm_factor.view(1, c, 1, 1).repeat(n, 1, h, w)
-    pseudo_gt = probs / norm_factor
-    z = pseudo_gt.sum(1).unsqueeze(1).repeat(1, c, 1, 1)
-    pseudo_gt = pseudo_gt / z
-    return pseudo_gt
-
+from scipy.spatial.distance import correlation
 
 class Trainer_siam(object):
 
@@ -66,7 +50,12 @@ class Trainer_siam(object):
         self.cuda = cuda
 
         self.model, self.merge = model
-        self.model_fixed = copy.deepcopy(self.model)
+
+        self.model_fixed = torchmodels.resnet101(pretrained=True)
+        layers = list(self.model_fixed.children())
+        layers = layers[:-1]
+        self.model_fixed = nn.Sequential(*layers).cuda()
+
         self.optim = optimizer
         self.prior = prior
 
@@ -111,6 +100,27 @@ class Trainer_siam(object):
         self.max_iter = max_iter
         self.best_mean_iu = 0
 
+        if osp.exists(self.train_loader.dataset.__class__.__name__ + '_similarity_features.npy'):
+            self.features = np.load(self.train_loader.dataset.__class__.__name__ + '_similarity_features.npy').item()
+        else:
+            self.features = {}
+            for batch_idx, (data_1, _, name) in tqdm.tqdm(
+                    enumerate(self.train_loader), total=len(self.train_loader),
+                    desc='Global features for similarity:', ncols=80, leave=False):
+                if self.cuda:
+                    data_1 = data_1.cuda()
+                data_1 = Variable(data_1)
+                self.features[name[0]] = self.model_fixed(data_1).cpu().data.numpy().squeeze()
+
+            for batch_idx, (data_1, _, name) in tqdm.tqdm(
+                    enumerate(self.val_loader), total=len(self.val_loader),
+                    desc='Global features for similarity"', ncols=80, leave=False):
+                if self.cuda:
+                    data_1 = data_1.cuda()
+                data_1 = Variable(data_1)
+                self.features[name[0]] = self.model_fixed(data_1).cpu().data.numpy().squeeze()
+            np.save(self.train_loader.dataset.__class__.__name__ + '_similarity_features.npy', self.features)
+
     def validate(self):
         self.model.eval()
 
@@ -119,7 +129,7 @@ class Trainer_siam(object):
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data_1, target_1) in tqdm.tqdm(
+        for batch_idx, (data_1, target_1, name_1) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
@@ -128,26 +138,28 @@ class Trainer_siam(object):
                 data_1, target_1 = data_1.cuda(), target_1.cuda()
             data_1, target_1 = Variable(data_1), Variable(target_1)
 
+            feats_1_sim = self.features[name_1[0]]
+
             feats_1 = self.model(data_1)
-            feats_1_sim = self.model_fixed(data_1)
 
             if batch_idx%50==0:
                 pdb.set_trace()
 
-            for batch_idx_2, (data_2, target_2) in enumerate(self.train_loader):
+            for batch_idx_2, (data_2, target_2, name_2) in enumerate(self.train_loader):
 
                 if self.cuda:
                     data_2, target_2 = data_2.cuda(), target_2.cuda()
                 data_2, target_2 = Variable(data_2), Variable(target_2)
                 target = target_1.eq(target_2).long()
 
+                feats_2_sim = self.features[name_2[0]]
+
                 feats_2 = self.model(data_2)
-                feats_2_sim = self.model_fixed(data_2)
                 score = self.merge(feats_1, feats_2)
 
-                similarity = F.cosine_similarity(feats_1_sim.view(len(data_1),-1), feats_2_sim.view(len(data_1),-1))
+                dissimilarity = correlation(feats_1_sim, feats_2_sim)
 
-                if (np.squeeze(similarity.cpu().data.numpy()) < 0.5):
+                if (np.squeeze(dissimilarity) > 0.35):
                     continue
 
                 """
@@ -180,7 +192,7 @@ class Trainer_siam(object):
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
-        for batch_idx, (data_1, target_1) in tqdm.tqdm(
+        for batch_idx, (data_1, target_1, name_1) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
 
@@ -194,10 +206,11 @@ class Trainer_siam(object):
                 data_1, target_1 = data_1.cuda(), target_1.cuda()
             data_1, target_1 = Variable(data_1), Variable(target_1)
 
-            feats_1 = self.model(data_1)
-            feats_1_sim = self.model_fixed(data_1)
+            feats_1_sim = self.features[name_1[0]]
 
-            for batch_idx_2, (data_2, target_2) in tqdm.tqdm(
+            feats_1 = self.model(data_1)
+
+            for batch_idx_2, (data_2, target_2, name_2) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train innerloop epoch=%d' % self.epoch, ncols=80, leave=False):
 
@@ -208,17 +221,16 @@ class Trainer_siam(object):
                 target[target_1 == -1] = -1
                 target[target_2 == -1] = -1
 
+                feats_2_sim = self.features[name_2[0]]
+
                 self.optim.zero_grad()
 
                 feats_2 = self.model(data_2)
-                feats_2_sim = self.model_fixed(data_2)
                 score = self.merge(feats_1, feats_2)
 
-                similarity = F.cosine_similarity(feats_1_sim.view(len(data_1),-1), feats_2_sim.view(len(data_1),-1))
-                ### OR:
-                #dissimilarity = 1 - score.sum()/(score.size()[2] * score.size()[3] * score.max())
+                dissimilarity = correlation(feats_1_sim, feats_2_sim)
 
-                if (np.squeeze(similarity.cpu().data.numpy()) < 0.5):
+                if (np.squeeze(dissimilarity) > 0.35):
                     continue
 
                 """

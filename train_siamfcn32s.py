@@ -136,9 +136,22 @@ def main():
         torchfcn.datasets.VOC2011ClassSeg(root, split='seg11valid', transform=True),
         batch_size=1, shuffle=False, **kwargs)
 
+
+
+    #### SIFT-FLOW
+    train_loader_siftflow = torch.utils.data.DataLoader(
+        torchfcn.datasets.SiftFlowData(root, split='train', transform=True),
+        batch_size=1, shuffle=True, **kwargs)
+
+    val_loader_siftflow = torch.utils.data.DataLoader(
+        torchfcn.datasets.SiftFlowData(root, split='val', transform=True),
+        batch_size=1, shuffle=False, **kwargs)
+
+
     # 2. model
 
-    model = torchfcn.models.FCN32s(n_class=21)
+    n_class = len(train_loader.dataset.class_names)
+    model = torchfcn.models.FCN32s(n_class=n_class)
     start_epoch = 0
     start_iteration = 0
     if resume:
@@ -179,9 +192,9 @@ def main():
         cuda=cuda,
         model=(model,merge),
         optimizer=optim,
-        train_loader=train_loader,
+        train_loader=train_loader_siftflow,
         train_loader_nolbl=train_loader_nolbl,
-        val_loader=val_loader,
+        val_loader=val_loader_siftflow,
         out=out,
         max_iter=cfg['max_iteration'],
         prior=None,

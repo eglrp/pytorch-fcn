@@ -9,7 +9,75 @@ import scipy.io
 import torch
 from torch.utils import data
 import cv2
+import os
 
+
+class SiftFlowData(data.Dataset):
+
+    class_names = np.array([])
+    mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
+
+    def __init__(self, root, split='train', transform=False):
+        self.root = root
+        self.split = split
+        self._transform = transform
+
+        # VOC2011 and others are subset of VOC2012
+        dataset_dir = self.root + '/SiftFlowDataset'
+        file_list = []
+        for filename in os.listdir(dataset_dir + '/Images'):
+            file_list.append(filename[:-4])
+        val_file_list = []
+        for filename in open(dataset_dir + '/TestSet1.txt', 'r'):
+            val_file_list.append(filename.strip()[51:-4])
+        train_file_list = list(set(file_list) - set(val_file_list))
+        file_list_dict = {'train':train_file_list, 'val':val_file_list}
+        self.files = collections.defaultdict(list)
+        for split in ['train', 'val']:
+            for file in file_list_dict[split]:
+                img_file = osp.join(dataset_dir, 'Images/%s.jpg' % file)
+                lbl_file = osp.join(dataset_dir, 'SemanticLabels/%s.mat' % file)
+                self.files[split].append({
+                    'img': img_file,
+                    'lbl': lbl_file,
+                })
+
+    def __len__(self):
+        return len(self.files[self.split])
+
+    def __getitem__(self, index):
+        data_file = self.files[self.split][index]
+        # load image
+        img_file = data_file['img']
+        img = PIL.Image.open(img_file)
+        img = np.array(img, dtype=np.uint8)
+        # load label
+        lbl_file = data_file['lbl']
+        mat = scipy.io.loadmat(lbl_file)
+        lbl = mat['S'].astype(np.int32)
+        lbl = lbl - 1
+        if self._transform:
+            return self.transform(img, lbl, img_file)
+        else:
+            return img, lbl, img_file
+
+    def transform(self, img, lbl, img_file):
+        img = img[:, :, ::-1]  # RGB -> BGR
+        img = img.astype(np.float64)
+        img -= self.mean_bgr
+        img = img.transpose(2, 0, 1)
+        img = torch.from_numpy(img).float()
+        lbl = torch.from_numpy(lbl).long()
+        return img, lbl, img_file
+
+    def untransform(self, img, lbl):
+        img = img.numpy()
+        img = img.transpose(1, 2, 0)
+        img += self.mean_bgr
+        img = img.astype(np.uint8)
+        img = img[:, :, ::-1]
+        lbl = lbl.numpy()
+        return img, lbl
 
 class VOCClassSegBase(data.Dataset):
 

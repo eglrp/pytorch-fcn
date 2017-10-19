@@ -6,6 +6,7 @@ dist/
 
 alaki*
 
+*.npy
 *.pth
 *.tar
 logs/

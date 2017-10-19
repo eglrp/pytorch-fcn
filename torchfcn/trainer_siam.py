@@ -142,35 +142,37 @@ class Trainer_siam(object):
 
             feats_1 = self.model(data_1)
 
-            if batch_idx%50==0:
+            if batch_idx%10==0:
                 pdb.set_trace()
 
             for batch_idx_2, (data_2, target_2, name_2) in enumerate(self.train_loader):
+
+                feats_2_sim = self.features[name_2[0]]
+
+                dissimilarity = correlation(feats_1_sim, feats_2_sim)
+
+                if (np.squeeze(dissimilarity) > 0.31):
+                    continue
 
                 if self.cuda:
                     data_2, target_2 = data_2.cuda(), target_2.cuda()
                 data_2, target_2 = Variable(data_2), Variable(target_2)
                 target = target_1.eq(target_2).long()
 
-                feats_2_sim = self.features[name_2[0]]
-
                 feats_2 = self.model(data_2)
                 score = self.merge(feats_1, feats_2)
 
-                dissimilarity = correlation(feats_1_sim, feats_2_sim)
-
-                if (np.squeeze(dissimilarity) > 0.35):
-                    continue
-
-                """
                 img1 = data_1.cpu().data.numpy()[0].transpose(1,2,0)
                 img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
                 lbl1 = target_1.cpu().data.numpy()[0]
                 lbl2 = target_2.cpu().data.numpy()[0]
                 lbleq = target.cpu().data.numpy()[0]
-                """
+
 
                 upscore = F.upsample(score, target.size()[1:], mode='bilinear')
+
+                if batch_idx % 10 == 0:
+                    pdb.set_trace()
 
                 loss = cross_entropy2d(upscore, target, size_average=self.size_average)
                 if np.isnan(float(loss.data[0])):
@@ -214,6 +216,13 @@ class Trainer_siam(object):
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train innerloop epoch=%d' % self.epoch, ncols=80, leave=False):
 
+                feats_2_sim = self.features[name_2[0]]
+
+                dissimilarity = correlation(feats_1_sim, feats_2_sim)
+
+                if (np.squeeze(dissimilarity) > 0.31):
+                    continue
+
                 if self.cuda:
                     data_2, target_2 = data_2.cuda(), target_2.cuda()
                 data_2, target_2 = Variable(data_2), Variable(target_2)
@@ -221,17 +230,13 @@ class Trainer_siam(object):
                 target[target_1 == -1] = -1
                 target[target_2 == -1] = -1
 
-                feats_2_sim = self.features[name_2[0]]
+                if (target.max().cpu().data.numpy()[0]==-1):
+                    continue
 
                 self.optim.zero_grad()
 
                 feats_2 = self.model(data_2)
                 score = self.merge(feats_1, feats_2)
-
-                dissimilarity = correlation(feats_1_sim, feats_2_sim)
-
-                if (np.squeeze(dissimilarity) > 0.35):
-                    continue
 
                 """
                 img1 = data_1.cpu().data.numpy()[0].transpose(1,2,0)

@@ -22,10 +22,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-10,
+        lr=1.0e-11,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=1465,
+        interval_validate=2488,
     )
 }
 

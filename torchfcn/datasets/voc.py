@@ -14,7 +14,41 @@ import os
 
 class SiftFlowData(data.Dataset):
 
-    class_names = np.array([])
+    class_names = np.array([
+        'awning',
+        'balcony',
+        'bird',
+        'boat',
+        'bridge',
+        'building',
+        'bus',
+        'car',
+        'cow',
+        'crosswalk',
+        'desert',
+        'door',
+        'fence',
+        'field',
+        'grass',
+        'moon',
+        'mountain',
+        'person',
+        'plant',
+        'pole',
+        'river',
+        'road',
+        'rock',
+        'sand',
+        'sea',
+        'sidewalk',
+        'sign',
+        'sky',
+        'staircase',
+        'streetlight',
+        'sun',
+        'tree',
+        'window'
+    ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
     def __init__(self, root, split='train', transform=False):
@@ -147,8 +181,6 @@ class VOCClassSegBase(data.Dataset):
 
     def transform(self, img, lbl):
         img = img[:, :, ::-1]  # RGB -> BGR
-        img = cv2.resize(img, (256,256), interpolation=cv2.INTER_CUBIC)
-        lbl = cv2.resize(lbl, (256,256), interpolation=cv2.INTER_NEAREST)
         img = img.astype(np.float64)
         img -= self.mean_bgr
         img = img.transpose(2, 0, 1)

@@ -57,9 +57,10 @@ class Trainer_siam(object):
         layers = layers[:-1]
         self.model_fixed = nn.Sequential(*layers).cuda()
 
-
+        """
         self.model.load_state_dict(torch.load('model_siftflow_dict_epoch_1.pth'))
         self.merge.load_state_dict(torch.load('merge_siftflow_dict_epoch_1.pth'))
+        """
 
 
         self.optim = optimizer
@@ -152,7 +153,8 @@ class Trainer_siam(object):
             feats_1 = self.model(data_1)
 
             n, h, w = target_1.size()
-            pseudo_label = np.zeros((h, w, n_class))
+            maxscore_sofar = np.zeros((h, w)).reshape(-1)
+            label_sofar = np.zeros((h, w)).reshape(-1)
 
             for batch_idx_2, (data_2, target_2, name_2) in enumerate(self.train_loader):
 
@@ -175,28 +177,15 @@ class Trainer_siam(object):
                 lbl2 = target_2.cpu().data.numpy()[0]
                 lbleq = target.cpu().data.numpy()[0]
 
-
                 upscore = F.upsample(score, target.size()[1:], mode='bilinear')
 
+                upscore_flat = upscore.view(-1).cpu().data.numpy()
+                idx_replace = upscore_flat>maxscore_sofar
+                lbl2_flat = lbl2.reshape(-1)
+                label_sofar[idx_replace] = lbl2_flat[idx_replace]
+                maxscore_sofar[idx_replace] = upscore_flat[idx_replace]
 
-                lbl_pred = upscore.max(1)[1][0].cpu().data.numpy()
-                lbl_pred[lbl2 == -1] = 0
-                lbl_pred_rep = np.expand_dims(lbl_pred, -1)
-                lbl_pred_rep = lbl_pred_rep.repeat(n_class, -1)
-
-                lbl2oh = to_categorical(lbl2, n_class)
-                lbl2oh_resh = lbl2oh.reshape((h, w, n_class))
-                pseudo_label += lbl2oh_resh * lbl_pred_rep
-
-                loss = cross_entropy2d(upscore, target, size_average=self.size_average)
-                if np.isnan(float(loss.data[0])):
-                    raise ValueError('loss is nan while validating')
-                val_loss += float(loss.data[0]) / len(data_1)
-
-
-            pseudo_label_max = np.max(pseudo_label, axis=-1)
-            pseudo_label = np.argmax(pseudo_label, axis=-1)
-            pseudo_label[pseudo_label_max==0] = -1
+            pseudo_label = label_sofar.reshape((h,w))
 
             plt.subplot(121)
             plt.imshow(lbl1)
@@ -206,7 +195,6 @@ class Trainer_siam(object):
             plt.title('Label Transfer Result')
             plt.show()
 
-            pdb.set_trace()
 
         val_loss /= len(self.val_loader)
         pdb.set_trace()
@@ -229,7 +217,7 @@ class Trainer_siam(object):
             iteration = batch_idx + self.epoch * len(self.train_loader)
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0 and self.iteration>0:
+            if self.iteration % self.interval_validate == 0:
                 self.validate()
 
             if self.cuda:

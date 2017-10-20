@@ -16,6 +16,7 @@ import torchfcn
 import pdb
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 configurations = {
     # same configuration as original work
@@ -94,8 +95,10 @@ class Merge(nn.Module):
             nn.Conv2d(4096, 2, 1),
         )
     def forward(self, x1, x2):
-        y = x1 * x2
-        y = self.classifier(y)
+        y = torch.sum(x1 * x2, 1)
+        y = torch.unsqueeze(y, 1)
+        #y = self.classifier(y)
+        #pdb.set_trace()
         return y
 
 
@@ -166,7 +169,7 @@ def main():
     #################################
     ### Dropping the score and up_score (and the last Dropout) layers of FCN32
     layers = list(model.children())
-    layers = layers[:-3]
+    layers = layers[:-4]
     model = nn.Sequential(*layers)
     #################################
     merge = Merge()

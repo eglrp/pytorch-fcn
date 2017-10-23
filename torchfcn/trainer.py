@@ -74,7 +74,7 @@ class Trainer(object):
         self.val_loader = val_loader
 
         self.timestamp_start = \
-            datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
+            datetime.datetime.now(pytz.timezone('Europe/London'))
         self.size_average = size_average
 
         if interval_validate is None:
@@ -157,7 +157,7 @@ class Trainer(object):
 
         with open(osp.join(self.out, 'log.csv'), 'a') as f:
             elapsed_time = \
-                datetime.datetime.now(pytz.timezone('Asia/Tokyo')) - \
+                datetime.datetime.now(pytz.timezone('Europe/London')) - \
                 self.timestamp_start
             log = [self.epoch, self.iteration] + [''] * 5 + \
                   [val_loss] + list(metrics) + [elapsed_time]
@@ -229,7 +229,7 @@ class Trainer(object):
 
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
                 elapsed_time = (
-                    datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                    datetime.datetime.now(pytz.timezone('Europe/London')) -
                     self.timestamp_start).total_seconds()
                 log = [self.epoch, self.iteration] + [loss.data[0]] + \
                     metrics.tolist() + [''] * 5 + [elapsed_time]
@@ -306,7 +306,7 @@ class Trainer(object):
 
                 with open(osp.join(self.out, 'log.csv'), 'a') as f:
                     elapsed_time = (
-                        datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                        datetime.datetime.now(pytz.timezone('Europe/London')) -
                         self.timestamp_start).total_seconds()
                     log = [self.epoch, self.iteration] + [loss.data[0]] + \
                         metrics.tolist() + [''] * 5 + [elapsed_time]

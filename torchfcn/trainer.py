@@ -21,6 +21,10 @@ import matplotlib.pyplot as plt
 import pdb
 
 
+def unique(tensor1d):
+    t, idx = np.unique(tensor1d.numpy(), return_inverse=True)
+    return torch.from_numpy(t), torch.from_numpy(idx)
+
 def cross_entropy2d(input, target, weight=None, size_average=True):
     # input: (n, c, h, w), target: (n, h, w)
     n, c, h, w = input.size()
@@ -28,12 +32,43 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
     log_p = F.log_softmax(input)
     # log_p: (n*h*w, c)
     log_p = log_p.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
-    log_p = log_p[target.view(n, h, w, 1).repeat(1, 1, 1, c) >= 0]
-    log_p = log_p.view(-1, c)
-    # target: (n*h*w,)
+    labels = unique(target.cpu().data.view(-1))[0]
+    loss = 0
+    for l in labels:
+        if l==-1:
+            continue
+        log_p_masked = log_p[target.view(n, h, w, 1).repeat(1, 1, 1, c) == l]
+        log_p_masked = log_p_masked.view(-1, c)
+        # target: (n*h*w,)
+        mask = target == l
+        target_masked = target[mask]
+        loss += F.nll_loss(log_p_masked, target_masked, weight=weight, size_average=False)
+        #pdb.set_trace()
+        #print(loss)
+    if size_average:
+        loss /= mask.data.sum()
+    return loss
+
+
+
+def clustering_loss(input, target, mean_embeddings, debug = False, weight=None, size_average=True):
+    # input: (n, c, h, w), target: (n, h, w)
+    mean_embeddings = Variable(mean_embeddings.cuda())
+    n, c, h, w = input.size()
+    labels = unique(target.cpu().data.view(-1))[0]
+    input_resh = input.permute(1, 0, 2, 3).view(c, -1)
+    loss = 0
+    for l in labels:
+        if l==-1:
+            continue
+        input_masked = input_resh[target.view(1, -1).repeat(c, 1) == l].view(c, -1)
+        class_mean_embeddings = torch.unsqueeze(mean_embeddings[:, l], 1).repeat(1, input_masked.size()[-1])
+        #loss += F.l1_loss(input_masked, class_mean_embeddings)
+        loss += torch.norm(input_masked-class_mean_embeddings, p=2)
+        if debug:
+            pdb.set_trace()
+            print(loss)
     mask = target >= 0
-    target = target[mask]
-    loss = F.nll_loss(log_p, target, weight=weight, size_average=False)
     if size_average:
         loss /= mask.data.sum()
     return loss
@@ -61,13 +96,15 @@ def compute_pseudo_target(score, prior):
 class Trainer(object):
 
     def __init__(self, cuda, model, optimizer,
-                 train_loader, train_loader_nolbl, val_loader, out, max_iter, prior=None,
+                 train_loader, train_loader_nolbl, val_loader, out,
+                 max_iter, mean_embeddings=None, prior=None,
                  size_average=False, interval_validate=None):
         self.cuda = cuda
 
         self.model = model
         self.optim = optimizer
         self.prior = prior
+        self.mean_embeddings = mean_embeddings
 
         self.train_loader_nolbl = train_loader_nolbl
         self.train_loader = train_loader
@@ -135,6 +172,17 @@ class Trainer(object):
 
             imgs = data.data.cpu()
             lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
+
+            """
+            score_rep = score.view(n_class, 1, -1).repeat(1, self.mean_embeddings.size()[-1], 1)
+            embed_rep = self.mean_embeddings.view(self.mean_embeddings.size()[0], self.mean_embeddings.size()[1], 1).repeat(1, 1, score_rep.size()[-1])
+            dist = torch.norm(score_rep-Variable(embed_rep.cuda()), p=2, dim=0)
+            values, indices = dist.min(dim=0)
+            lbl_pred = indices.view(target.size()[1],target.size()[2]).cpu().data.numpy()
+            lbl_pred = np.expand_dims(lbl_pred, 0)
+            """
+
+
             lbl_true = target.data.cpu()
             for img, lt, lp in zip(imgs, lbl_true, lbl_pred):
                 img, lt = self.val_loader.dataset.untransform(img, lt)
@@ -190,18 +238,22 @@ class Trainer(object):
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
+        dbg = False
         for batch_idx, (data, target) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
-                desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
+                desc='Train epoch={}'.format(self.epoch), ncols=80, leave=False):
             iteration = batch_idx + self.epoch * len(self.train_loader) #\
                                   #+ self.epoch * len(self.train_loader_nolbl)
             if self.iteration != 0 and (iteration - 1) != self.iteration:
                 continue  # for resuming
             self.iteration = iteration
 
+            #self.validate()
+
             if self.iteration % self.interval_validate == 0:
                 #pdb.set_trace()
                 self.validate()
+                #dbg = True
 
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
@@ -209,13 +261,20 @@ class Trainer(object):
             self.optim.zero_grad()
             score = self.model(data)
 
-            loss = cross_entropy2d(score, target,
-                                   size_average=self.size_average)
+            loss = cross_entropy2d(score, target, size_average=self.size_average)
+            #loss = clustering_loss(score, target, self.mean_embeddings, debug = dbg, size_average=self.size_average)
+
             loss /= len(data)
             if np.isnan(float(loss.data[0])):
                 raise ValueError('loss is nan while training')
             loss.backward()
             self.optim.step()
+
+
+            #lbl_pred = score.data.max(1)[1].cpu().numpy()[0]
+            #lbl_true = target.data.cpu()[0]
+
+            #pdb.set_trace()
 
             metrics = []
             lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]

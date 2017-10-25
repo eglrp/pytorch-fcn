@@ -13,6 +13,7 @@ import torch
 import yaml
 
 import torchfcn
+from get_mean_embeddings import *
 
 
 configurations = {
@@ -159,6 +160,13 @@ def main():
     label_prior = label_prior.astype(np.float64)
     label_prior = torch.from_numpy(1-label_prior)
 
+    if osp.exists('mean_embeddings.npy'):
+        mean_embeddings = np.load('mean_embeddings.npy')
+        mean_embeddings = torch.from_numpy(mean_embeddings).float()
+    else:
+        mean_embeddings = get_mean_embedding(cuda, model, train_loader)
+        np.save('mean_embeddings.npy', mean_embeddings.numpy())
+
     trainer = torchfcn.Trainer(
         cuda=cuda,
         model=model,
@@ -168,6 +176,7 @@ def main():
         val_loader=val_loader,
         out=out,
         max_iter=cfg['max_iteration'],
+        mean_embeddings = mean_embeddings,
         prior=None,
         interval_validate=cfg.get('interval_validate', len(train_loader)),
     )

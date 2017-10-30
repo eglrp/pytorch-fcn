@@ -182,6 +182,8 @@ class VOCClassSegBase(data.Dataset):
     def transform(self, img, lbl):
         img = img[:, :, ::-1]  # RGB -> BGR
         img = img.astype(np.float64)
+        #img = cv2.resize(img, (321, 321), interpolation=cv2.INTER_CUBIC)
+        #lbl = cv2.resize(lbl, (321, 321), interpolation=cv2.INTER_NEAREST)
         img -= self.mean_bgr
         img = img.transpose(2, 0, 1)
         img = torch.from_numpy(img).float()

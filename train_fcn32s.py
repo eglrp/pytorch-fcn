@@ -22,6 +22,7 @@ configurations = {
     1: dict(
         max_iteration=150000,
         lr=1.0e-10,
+        lr_2=1.0e-9,
         momentum=0.99,
         weight_decay=0.0005,
         interval_validate=4000,
@@ -112,7 +113,7 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2012ClassSeg(root, split='train', transform=True),
-        batch_size=1, shuffle=True, **kwargs)
+        batch_size=1, shuffle=False, **kwargs)
 
     train_loader_nolbl = torch.utils.data.DataLoader(
         torchfcn.datasets.SBDClassSeg(root, split='train', transform=True),
@@ -149,8 +150,18 @@ def main():
         lr=cfg['lr'],
         momentum=cfg['momentum'],
         weight_decay=cfg['weight_decay'])
+    optim_2 = torch.optim.SGD(
+        [
+            {'params': get_parameters(model, bias=False)},
+            {'params': get_parameters(model, bias=True),
+             'lr': cfg['lr_2'] * 2, 'weight_decay': 0},
+        ],
+        lr=cfg['lr_2'],
+        momentum=cfg['momentum'],
+        weight_decay=cfg['weight_decay'])
     if resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
+        optim_2.load_state_dict(checkpoint['optim_2_state_dict'])
 
     label_prior = np.array([1.82e+08, 1.78e+06, 7.58e+05, 2.23e+06, 1.51e+06,
                    1.52e+06, 4.38e+06, 3.49e+06, 6.75e+06, 2.86e+06,
@@ -171,6 +182,7 @@ def main():
         cuda=cuda,
         model=model,
         optimizer=optim,
+        optimizer_2=optim_2,
         train_loader=train_loader,
         train_loader_nolbl=train_loader_nolbl,
         val_loader=val_loader,

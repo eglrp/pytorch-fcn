@@ -33,35 +33,45 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
     # target: (n*h*w,)
     mask = target >= 0
     target = target[mask]
+    ### either:
     loss = F.nll_loss(log_p, target, weight=weight, size_average=False)
+    ### or:
+    #target = target.unsqueeze(1)
+    #target_onehot = torch.zeros(target.size()[0],c).scatter_(1, target.cpu().data, torch.ones(target.size()[0],1)).cuda()
+    #loss = - torch.sum(log_p * Variable(target_onehot))
     if size_average:
         loss /= mask.data.sum()
     return loss
 
-
-def unique(tensor1d):
-    t, idx = np.unique(tensor1d.numpy(), return_inverse=True)
-    return torch.from_numpy(t), torch.from_numpy(idx)
-
-
-def clustering_loss(input, target, mean_embeddings, weight=None, size_average=True):
-    # input: (n, c, h, w), target: (n, h, w)
-    mean_embeddings = Variable(mean_embeddings.cuda())
+def soft_cross_entropy2d(input, target, weight=None, size_average=True):
+    # input: (n, c, h, w), target: (n, c, h, w)
     n, c, h, w = input.size()
-    labels = unique(target.cpu().data.view(-1))[0]
-    input_resh = input.permute(1, 0, 2, 3).view(c, -1)
-    loss = 0
-    for l in labels:
-        if l==-1:
-            continue
-        input_masked = input_resh[target.view(1, -1).repeat(c, 1) == l].view(c, -1)
-        class_mean_embeddings = torch.unsqueeze(mean_embeddings[:, l], 1).repeat(1, input_masked.size()[-1])
-        #loss += F.l1_loss(input_masked, class_mean_embeddings)
-        loss += torch.norm(input_masked-class_mean_embeddings, p=2)
-    mask = target >= 0
+    # log_p: (n, c, h, w)
+    log_p = F.log_softmax(input)
+    # log_p: (n*h*w, c)
+    log_p = log_p.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+    # target: (n*h*w,)
+    loss = - torch.sum(log_p * target)
     if size_average:
-        loss /= mask.data.sum()
+        loss /= (n*h*w)
     return loss
+
+def compute_pseudo_target(score, prior):
+    softmax = nn.Softmax2d()
+    probs = softmax(score)
+
+    n, c, h, w = probs.size()
+    if prior is not None:
+        prior_mat = prior.view(1, c, 1, 1).repeat(n, 1, h, w).float().cuda()
+        probs = probs * Variable(prior_mat)
+    probs_t = probs.permute(1, 0, 2, 3)
+    sum_probs = probs_t.view(c,-1).sum(-1) # for minibatches of size larger than one,
+    # we use pixels of all images to compute the class assignment statistics
+    norm_factor = sum_probs.view(1, c, 1, 1).repeat(n, 1, h, w)
+    pseudo_gt = probs / norm_factor
+    z = pseudo_gt.sum(1).unsqueeze(1).repeat(1, c, 1, 1)
+    pseudo_gt = pseudo_gt / z
+    return pseudo_gt
 
 
 class Trainer(object):
@@ -215,11 +225,11 @@ class Trainer(object):
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
 
-            if not batch_idx%1:
+            if not batch_idx%2:
                 ##############################
                 ### Cross-entropy loss:
                 self.optim.zero_grad()
-                self.optim_2.zero_grad()
+                #self.optim_2.zero_grad()
                 score = self.model(data)
                 loss = cross_entropy2d(score, target, size_average=self.size_average)
                 loss /= len(data)
@@ -232,38 +242,30 @@ class Trainer(object):
                 ##############################
                 ### Clustering loss:
                 self.optim.zero_grad()
-                self.optim_2.zero_grad()
+                #self.optim_2.zero_grad()
                 score = self.model(data)
-                loss_2 = clustering_loss(score, target, self.mean_embeddings, size_average=self.size_average)
+                pseudo_target = compute_pseudo_target(score, self.prior)
+
+
+                conf, ps = pseudo_target.data.max(1)
+                ps[conf<.9] = -1
+                if (ps.max()==-1):
+                    continue
+                target = Variable(ps)
+
+
+                #loss_2 = soft_cross_entropy2d(score, pseudo_target, size_average=self.size_average)
+                loss_2 = cross_entropy2d(score, target, size_average=self.size_average)
+
                 loss_2 /= len(data)
                 if np.isnan(float(loss_2.data[0])):
                     raise ValueError('loss is nan while training')
                 loss_2.backward()
-                self.optim_2.step()
-
-            """
-            metrics = []
-            lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
-            lbl_true = target.data.cpu().numpy()
-            for lt, lp in zip(lbl_true, lbl_pred):
-                acc, acc_cls, mean_iu, fwavacc = \
-                    torchfcn.utils.label_accuracy_score(
-                        [lt], [lp], n_class=n_class)
-                metrics.append((acc, acc_cls, mean_iu, fwavacc))
-            metrics = np.mean(metrics, axis=0)
-
-            with open(osp.join(self.out, 'log.csv'), 'a') as f:
-                elapsed_time = (
-                    datetime.datetime.now(pytz.timezone('Europe/London')) -
-                    self.timestamp_start).total_seconds()
-                log = [self.epoch, self.iteration] + [loss.data[0]] + \
-                    metrics.tolist() + [''] * 5 + [elapsed_time]
-                log = map(str, log)
-                f.write(','.join(log) + '\n')
+                #self.optim_2.step()
+                self.optim.step()
 
             if self.iteration >= self.max_iter:
                 break
-            """
 
 
     def train(self):

@@ -25,7 +25,7 @@ configurations = {
         lr_2=1.0e-9,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=4000,
+        interval_validate=1000,
     )
 }
 
@@ -121,6 +121,15 @@ def main():
 
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(root, split='seg11valid', transform=True),
+        batch_size=1, shuffle=False, **kwargs)
+
+    #### SIFT-FLOW
+    train_loader_siftflow = torch.utils.data.DataLoader(
+        torchfcn.datasets.SiftFlowData(root, split='train', transform=True),
+        batch_size=1, shuffle=True, **kwargs)
+
+    val_loader_siftflow = torch.utils.data.DataLoader(
+        torchfcn.datasets.SiftFlowData(root, split='val', transform=True),
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model

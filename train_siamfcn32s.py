@@ -21,7 +21,7 @@ configurations = {
     # same configuration as original work
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
-        max_iteration=150000,
+        max_iteration=15000000,
         lr=1.0e-11,
         momentum=0.99,
         weight_decay=0.0005,
@@ -91,10 +91,20 @@ class Merge(nn.Module):
     def __init__(self):
         super(Merge, self).__init__()
         self.classifier = nn.Sequential(
-            nn.Conv2d(4096, 2, 1),
+            nn.Conv2d(1, 1, 1),
         )
     def forward(self, x1, x2):
-        y = x1 * x2
+        n, d, h, w = x1.size()
+        if n>1:
+            raise ValueError('Unexpected mini-batch size')
+        x1 = x1.squeeze(0)
+        x2 = x2.squeeze(0)
+        x1 = x1.permute(1, 2, 0).contiguous().view(-1, d)
+        x2 = x2.permute(1, 2, 0).contiguous().view(-1, d)
+        y = torch.mm(x1, x2.transpose(1,0))
+        #y = ((x1.unsqueeze(1) - x2.unsqueeze(0))**2 + 1e-10).sum(-1).sqrt()
+        y = y.unsqueeze(0)
+        y = y.unsqueeze(0)
         y = self.classifier(y)
         return y
 
@@ -141,7 +151,7 @@ def main():
     #### SIFT-FLOW
     train_loader_siftflow = torch.utils.data.DataLoader(
         torchfcn.datasets.SiftFlowData(root, split='train', transform=True),
-        batch_size=1, shuffle=True, **kwargs)
+        batch_size=1, shuffle=False, **kwargs)
 
     val_loader_siftflow = torch.utils.data.DataLoader(
         torchfcn.datasets.SiftFlowData(root, split='val', transform=True),
@@ -164,7 +174,7 @@ def main():
         model.copy_params_from_vgg16(vgg16)
 
     #################################
-    ### Dropping the score and up_score (and the last Dropout) layers of FCN32
+    ### Dropping the score and up_score (and the last Dropout and Relu) layers of FCN32
     layers = list(model.children())
     layers = layers[:-3]
     model = nn.Sequential(*layers)
@@ -181,8 +191,8 @@ def main():
         [
             {'params': get_parameters(model, bias=False)},
             {'params': get_parameters(model, bias=True), 'lr': cfg['lr'] * 2, 'weight_decay': 0},
-            {'params': get_parameters(merge, bias=False), 'lr': cfg['lr'] * 10},
-            {'params': get_parameters(merge, bias=True), 'lr': cfg['lr'] * 10, 'weight_decay': 0}],
+            {'params': get_parameters(merge, bias=False), 'lr': cfg['lr'] * 1000},
+            {'params': get_parameters(merge, bias=True), 'lr': cfg['lr'] * 2000, 'weight_decay': 0}],
         lr=cfg['lr'],  momentum=cfg['momentum'], weight_decay=cfg['weight_decay'])
 
     if resume:

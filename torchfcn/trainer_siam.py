@@ -41,6 +41,20 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
         loss /= mask.data.sum()
     return loss
 
+
+def binary_cross_entropy2d(input, target, weight=None, size_average=True):
+    # input: (n, c, h, w), target: (n, h, w)
+    #pdb.set_trace()
+    n, c, h, w = input.size()
+    input = input.view(n, -1)
+    target = target.view(n, -1).float()
+    LOSS = nn.BCEWithLogitsLoss(weight=weight, size_average=False).cuda()
+    mask = target >= 0
+    loss = LOSS(input[mask], target[mask])
+    if size_average:
+        loss /= mask.data.sum()
+    return loss
+
 from scipy.spatial.distance import correlation
 
 class Trainer_siam(object):
@@ -58,8 +72,8 @@ class Trainer_siam(object):
         self.model_fixed = nn.Sequential(*layers).cuda()
 
 
-        self.model.load_state_dict(torch.load('model_siftflow_dict_epoch_1.pth'))
-        self.merge.load_state_dict(torch.load('merge_siftflow_dict_epoch_1.pth'))
+        #self.model.load_state_dict(torch.load('model_siftflow_dict_epoch_1.pth'))
+        #self.merge.load_state_dict(torch.load('merge_siftflow_dict_epoch_1.pth'))
 
 
         self.optim = optimizer
@@ -135,68 +149,60 @@ class Trainer_siam(object):
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data_1, target_1, name_1) in tqdm.tqdm(
+        for batch_idx, (data_1, target_1, name_1, target_1_s) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
 
             if self.cuda:
-                data_1, target_1 = data_1.cuda(), target_1.cuda()
-            data_1, target_1 = Variable(data_1), Variable(target_1)
+                data_1, target_1, target_1_s  = data_1.cuda(), target_1.cuda(), target_1_s.cuda()
+            data_1, target_1, target_1_s = Variable(data_1), Variable(target_1), Variable(target_1_s)
 
             img1 = data_1.cpu().data.numpy()[0].transpose(1, 2, 0)
-            lbl1 = target_1.cpu().data.numpy()[0]
+            lbl1 = target_1_s.cpu().data.numpy()[0]
 
             feats_1_sim = self.features[name_1[0]]
 
             feats_1 = self.model(data_1)
 
-            n, h, w = target_1.size()
-            pseudo_label = np.zeros((h, w, n_class))
+            n, h, w = target_1_s.size()
+            pseudo_label = np.zeros((h*w, n_class))
 
-            for batch_idx_2, (data_2, target_2, name_2) in enumerate(self.train_loader):
+            for batch_idx_2, (data_2, target_2, name_2, target_2_s) in enumerate(self.train_loader):
 
                 feats_2_sim = self.features[name_2[0]]
 
                 dissimilarity = correlation(feats_1_sim, feats_2_sim)
 
-                if (np.squeeze(dissimilarity) > 0.32):
+                if (np.squeeze(dissimilarity) > 0.315):
                     continue
 
                 if self.cuda:
-                    data_2, target_2 = data_2.cuda(), target_2.cuda()
-                data_2, target_2 = Variable(data_2), Variable(target_2)
-                target = target_1.eq(target_2).long()
+                    data_2, target_2, target_2_s = data_2.cuda(), target_2.cuda(), target_2_s.cuda()
+                data_2, target_2, target_2_s = Variable(data_2), Variable(target_2), Variable(target_2_s)
 
                 feats_2 = self.model(data_2)
                 score = self.merge(feats_1, feats_2)
 
-                img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
-                lbl2 = target_2.cpu().data.numpy()[0]
-                lbleq = target.cpu().data.numpy()[0]
+                score = nn.Sigmoid()(score)
 
+                score = score.squeeze(0).squeeze(0)
+                score[score>=0.5] = 1
+                score[score<0.5] = 0
 
-                upscore = F.upsample(score, target.size()[1:], mode='bilinear')
+                target2s_rep = target_2_s.view(1, h*w).repeat(h*w, 1)
+                score[target2s_rep<0] = 0
 
-
-                lbl_pred = upscore.max(1)[1][0].cpu().data.numpy()
-                lbl_pred[lbl2 == -1] = 0
-                lbl_pred_rep = np.expand_dims(lbl_pred, -1)
-                lbl_pred_rep = lbl_pred_rep.repeat(n_class, -1)
-
+                #img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
+                lbl2 = target_2_s.cpu().data.numpy()[0]
                 lbl2oh = to_categorical(lbl2, n_class)
-                lbl2oh_resh = lbl2oh.reshape((h, w, n_class))
-                pseudo_label += lbl2oh_resh * lbl_pred_rep
-
-                loss = cross_entropy2d(upscore, target, size_average=self.size_average)
-                if np.isnan(float(loss.data[0])):
-                    raise ValueError('loss is nan while validating')
-                val_loss += float(loss.data[0]) / len(data_1)
-
+                transfered = np.dot(score.cpu().data.numpy(), lbl2oh)
+                pseudo_label += transfered
 
             pseudo_label_max = np.max(pseudo_label, axis=-1)
             pseudo_label = np.argmax(pseudo_label, axis=-1)
             pseudo_label[pseudo_label_max==0] = -1
+            pseudo_label = np.reshape(pseudo_label, (h, w))
 
             plt.subplot(121)
             plt.imshow(lbl1)
@@ -218,45 +224,81 @@ class Trainer_siam(object):
         self.model.train()
 
         n_class = len(self.train_loader.dataset.class_names)
+        total_loss = 1000000
+        num = 1
 
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
-        for batch_idx, (data_1, target_1, name_1) in tqdm.tqdm(
+        for batch_idx, (data_1, target_1, name_1, target_1_s) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
-                desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
+                desc='Train epoch={}'.format(self.epoch), ncols=80, leave=False):
+
+            if batch_idx > 5:
+                break
+            #if batch_idx != 5:
+            #    continue
 
             iteration = batch_idx + self.epoch * len(self.train_loader)
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0 and self.iteration>0:
-                self.validate()
+            #if self.iteration % self.interval_validate == 0 and self.iteration>0:
+            #    self.validate()
 
             if self.cuda:
-                data_1, target_1 = data_1.cuda(), target_1.cuda()
-            data_1, target_1 = Variable(data_1), Variable(target_1)
+                data_1, target_1, target_1_s = data_1.cuda(), target_1.cuda(), target_1_s.cuda()
+            data_1, target_1, target_1_s = Variable(data_1), Variable(target_1), Variable(target_1_s)
 
             feats_1_sim = self.features[name_1[0]]
 
             feats_1 = self.model(data_1)
 
-            for batch_idx_2, (data_2, target_2, name_2) in tqdm.tqdm(
+            total_loss = 0.0
+            num = 0.0
+            correct = 0.0
+            num_samples = 0.0
+            correct0 = 0.0
+            num_samples0 = 0.0
+            correct1 = 0.0
+            num_samples1 = 0.0
+
+            #########################################
+            ### Inner loop over the fully-labeled data:
+            #########################################
+            for batch_idx_2, (data_2, target_2, name_2, target_2_s) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train innerloop epoch=%d' % self.epoch, ncols=80, leave=False):
+
+
+                if batch_idx_2 > 5:
+                    break
+                #if batch_idx_2 != 5:
+                #    continue
 
                 feats_2_sim = self.features[name_2[0]]
 
                 dissimilarity = correlation(feats_1_sim, feats_2_sim)
 
-                if (np.squeeze(dissimilarity) > 0.315):
-                    continue
+                #if np.squeeze(dissimilarity) > 0.315 and batch_idx_2 != (len(self.train_loader)-1):
+                #    continue
+
+                #sample = np.random.rand()
+                #if sample < 0.5 and batch_idx_2 != (len(self.train_loader)-1):
+                #    continue
 
                 if self.cuda:
-                    data_2, target_2 = data_2.cuda(), target_2.cuda()
-                data_2, target_2 = Variable(data_2), Variable(target_2)
-                target = target_1.eq(target_2).long()
-                target[target_1 == -1] = -1
-                target[target_2 == -1] = -1
+                    data_2, target_2, target_2_s = data_2.cuda(), target_2.cuda(), target_2_s.cuda()
+                data_2, target_2, target_2_s = Variable(data_2), Variable(target_2), Variable(target_2_s)
+
+
+                n, h, w = target_1_s.size()
+                target_1_s_resh = target_1_s.view(n, 1, h*w)
+                target_2_s_resh = target_2_s.view(n, h*w, 1)
+                target = target_2_s_resh.eq(target_1_s_resh).long()
+                target[target_1_s_resh.repeat(1, h*w, 1) < 0] = -1
+                target[target_2_s_resh.repeat(1, 1, h*w) < 0] = -1
+
+
 
                 if (target.max().cpu().data.numpy()[0]==-1):
                     continue
@@ -267,26 +309,70 @@ class Trainer_siam(object):
                 score = self.merge(feats_1, feats_2)
 
                 """
+                if batch_idx==5 and batch_idx_2==5 and self.epoch>20:
+                    plt.subplot(221)
+                    plt.imshow(target_1_s.view(h, w).cpu().data.numpy())
+                    plt.title('Target 1')
+                    plt.subplot(222)
+                    plt.imshow(target_2_s.view(h, w).cpu().data.numpy())
+                    plt.title('Target 2')
+                    plt.subplot(223)
+                    plt.imshow(target[0].cpu().data.numpy())
+                    plt.title('Consistency target')
+                    plt.subplot(224)
+                    plt.imshow(score[0, 0].cpu().data.numpy())
+                    plt.title('Consistency prediction')
+                    plt.show()
+                """
+
+
+                """
                 img1 = data_1.cpu().data.numpy()[0].transpose(1,2,0)
                 img2 = data_2.cpu().data.numpy()[0].transpose(1,2,0)
                 lbl1 = target_1.cpu().data.numpy()[0]
                 lbl2 = target_2.cpu().data.numpy()[0]
                 lbleq = target.cpu().data.numpy()[0]
                 """
-
-                upscore = F.upsample(score, target.size()[1:], mode='bilinear')
-
-                loss = cross_entropy2d(upscore, target, size_average=self.size_average)
+                loss = binary_cross_entropy2d(score, target, size_average=self.size_average)
                 loss /= len(data_1)
+
+                total_loss += loss.data
+                num += 1.0
+
+                score = nn.Sigmoid()(score)
+
+                score[score>=0.5] = 1
+                score[score<0.5] = 0
+                score = score.squeeze(1).long()
+
+                mask = target>=0
+                mask0 = target == 0
+                mask1 = target == 1
+
+                correct += score[mask].eq(target[mask]).float().data.sum()
+                num_samples += mask.float().data.sum()
+                correct0 += score[mask0].eq(target[mask0]).float().data.sum()
+                num_samples0 += mask0.float().data.sum()
+                correct1 += score[mask1].eq(target[mask1]).float().data.sum()
+                num_samples1 += mask1.float().data.sum()
 
                 if np.isnan(float(loss.data[0])):
                     raise ValueError('loss is nan while training')
 
-                if batch_idx_2==(len(self.train_loader)-1):
+                if batch_idx_2==(10):
                     loss.backward()
                 else:
                     loss.backward(retain_graph=True)
                 self.optim.step()
+
+            if num > 0:
+                print('\nLoss = {}'.format(total_loss/num))
+            if num_samples > 0:
+                print('Accuracy = {}, number of samples = {}'.format(correct/num_samples, num_samples))
+            if num_samples0 > 0:
+                print('Accuracy_0 = {}, number of samples = {}'.format(correct0/num_samples0, num_samples0))
+            if num_samples1 > 0:
+                print('Accuracy_1 = {}, number of samples = {}'.format(correct1/num_samples1, num_samples1))
 
             if self.iteration >= self.max_iter:
                 break

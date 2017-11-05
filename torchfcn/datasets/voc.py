@@ -101,8 +101,10 @@ class SiftFlowData(data.Dataset):
         img -= self.mean_bgr
         img = img.transpose(2, 0, 1)
         img = torch.from_numpy(img).float()
+        lbl_small = cv2.resize(lbl, (9, 9), interpolation=cv2.INTER_NEAREST)
+        lbl_small = torch.from_numpy(lbl_small).long()
         lbl = torch.from_numpy(lbl).long()
-        return img, lbl, img_file
+        return img, lbl, img_file, lbl_small
 
     def untransform(self, img, lbl):
         img = img.numpy()

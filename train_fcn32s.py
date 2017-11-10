@@ -22,10 +22,9 @@ configurations = {
     1: dict(
         max_iteration=150000,
         lr=1.0e-10,
-        lr_2=1.0e-9,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=4000,
+        interval_validate=1000,
     )
 }
 
@@ -132,9 +131,36 @@ def main():
         torchfcn.datasets.SiftFlowData(root, split='val', transform=True),
         batch_size=1, shuffle=False, **kwargs)
 
-    # 2. model
+    #### CAMVID
+    train_loader_camvid = torch.utils.data.DataLoader(
+        torchfcn.datasets.CamVid(root, split='train', transform=True),
+        batch_size=1, shuffle=True, **kwargs)
 
-    model = torchfcn.models.FCN32s(n_class=21)
+    val_loader_camvid = torch.utils.data.DataLoader(
+        torchfcn.datasets.CamVid(root, split='val', transform=True),
+        batch_size=1, shuffle=False, **kwargs)
+
+    test_loader_camvid = torch.utils.data.DataLoader(
+        torchfcn.datasets.CamVid(root, split='test', transform=True),
+        batch_size=1, shuffle=False, **kwargs)
+
+    #########################################
+    #########################################
+    #########################################
+    # 2. model and dataset
+
+    CAMVID = 1
+    SIFTFLOW = 0
+    ## If both the above are zero, VOC data is chosen by default.
+
+    if CAMVID:
+        train_loader = train_loader_camvid
+        val_loader = test_loader_camvid
+    elif SIFTFLOW:
+        train_loader = train_loader_siftflow
+        val_loader = val_loader_siftflow
+
+    model = torchfcn.models.FCN32s(n_class=len(train_loader.dataset.class_names))
     start_epoch = 0
     start_iteration = 0
     if resume:
@@ -146,9 +172,13 @@ def main():
         #vgg16 = torchfcn.models.VGG16(pretrained=True)
         #model.copy_params_from_vgg16(vgg16)
 
-        #npdicts = caffe_to_numpy('./models/deploy_vgg16_imagenet1000.prototxt', './models/vgg16_imagenet1000.caffemodel')
+        ##npdicts = caffe_to_numpy('./models/deploy_vgg16_imagenet1000.prototxt', './models/vgg16_imagenet1000.caffemodel')
         npdicts = pickle.load(open('saved.p', 'r')) # saved.p is the pickled layer weights of the official pre-trained vgg16 that I extracted using caffe_to_numpy.py
         model.copy_params_from_numpydict(npdicts)
+
+    #########################################
+    #########################################
+    #########################################
 
     if cuda:
         model = model.cuda()
@@ -164,46 +194,17 @@ def main():
         lr=cfg['lr'],
         momentum=cfg['momentum'],
         weight_decay=cfg['weight_decay'])
-    optim_2 = torch.optim.SGD(
-        [
-            {'params': get_parameters(model, bias=False)},
-            {'params': get_parameters(model, bias=True),
-             'lr': cfg['lr_2'] * 2, 'weight_decay': 0},
-        ],
-        lr=cfg['lr_2'],
-        momentum=cfg['momentum'],
-        weight_decay=cfg['weight_decay'])
     if resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
-        optim_2.load_state_dict(checkpoint['optim_2_state_dict'])
-
-    label_prior = np.array([1.82e+08, 1.78e+06, 7.58e+05, 2.23e+06, 1.51e+06,
-                   1.52e+06, 4.38e+06, 3.49e+06, 6.75e+06, 2.86e+06,
-                   2.06e+06, 3.38e+06, 4.34e+06, 2.28e+06, 2.89e+06,
-                   1.20e+07, 1.67e+06, 2.25e+06, 3.61e+06, 3.98e+06, 2.35e+06])
-    label_prior = label_prior / label_prior.sum()
-    label_prior = label_prior.astype(np.float64)
-    label_prior = torch.from_numpy(1-label_prior)
-
-    if osp.exists('mean_embeddings.npy'):
-        mean_embeddings = np.load('mean_embeddings.npy')
-        mean_embeddings = torch.from_numpy(mean_embeddings).float()
-    else:
-        mean_embeddings = get_mean_embedding(cuda, model, train_loader)
-        np.save('mean_embeddings.npy', mean_embeddings.numpy())
 
     trainer = torchfcn.Trainer(
         cuda=cuda,
         model=model,
         optimizer=optim,
-        optimizer_2=optim_2,
         train_loader=train_loader,
-        train_loader_nolbl=train_loader_nolbl,
         val_loader=val_loader,
         out=out,
         max_iter=cfg['max_iteration'],
-        mean_embeddings = mean_embeddings,
-        prior=None,
         interval_validate=cfg.get('interval_validate', len(train_loader)),
     )
     trainer.epoch = start_epoch

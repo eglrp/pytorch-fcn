@@ -32,7 +32,6 @@ def main():
     args = parser.parse_args()
     pynet = caffe_to_numpy(args.proto_path, args.caffemodel)
     pickle.dump(pynet, open('saved.p', 'w'))
-    pdb.set_trace()
 
 
 if __name__ == '__main__':

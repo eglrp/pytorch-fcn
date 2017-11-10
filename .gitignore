@@ -10,5 +10,7 @@ alaki*
 *.pkl
 *.pth
 *.tar
+*.p
+models/
 logs/
 att_faces

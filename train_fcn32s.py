@@ -14,7 +14,7 @@ import yaml
 
 import torchfcn
 from get_mean_embeddings import *
-
+import pickle
 
 configurations = {
     # same configuration as original work
@@ -25,7 +25,7 @@ configurations = {
         lr_2=1.0e-9,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=1000,
+        interval_validate=4000,
     )
 }
 
@@ -143,8 +143,13 @@ def main():
         start_epoch = checkpoint['epoch']
         start_iteration = checkpoint['iteration']
     else:
-        vgg16 = torchfcn.models.VGG16(pretrained=True)
-        model.copy_params_from_vgg16(vgg16)
+        #vgg16 = torchfcn.models.VGG16(pretrained=True)
+        #model.copy_params_from_vgg16(vgg16)
+
+        #npdicts = caffe_to_numpy('./models/deploy_vgg16_imagenet1000.prototxt', './models/vgg16_imagenet1000.caffemodel')
+        npdicts = pickle.load(open('saved.p', 'r')) # saved.p is the pickled layer weights of the official pre-trained vgg16 that I extracted using caffe_to_numpy.py
+        model.copy_params_from_numpydict(npdicts)
+
     if cuda:
         model = model.cuda()
 

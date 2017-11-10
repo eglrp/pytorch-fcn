@@ -225,7 +225,7 @@ class Trainer(object):
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
 
-            if not batch_idx%2:
+            if not batch_idx%1:
                 ##############################
                 ### Cross-entropy loss:
                 self.optim.zero_grad()

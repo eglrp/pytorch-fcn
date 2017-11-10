@@ -4,6 +4,7 @@ import fcn
 import numpy as np
 import torch
 import torch.nn as nn
+import pdb
 
 
 # https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/surgery.py
@@ -178,3 +179,25 @@ class FCN32s(nn.Module):
             l2 = getattr(self, name)
             l2.weight.data = l1.weight.data.view(l2.weight.size())
             l2.bias.data = l1.bias.data.view(l2.bias.size())
+
+    def copy_params_from_numpydict(self, npdict):
+        features = [
+            self.conv1_1,
+            self.conv1_2,
+            self.conv2_1,
+            self.conv2_2,
+            self.conv3_1,
+            self.conv3_2,
+            self.conv3_3,
+            self.conv4_1,
+            self.conv4_2,
+            self.conv4_3,
+            self.conv5_1,
+            self.conv5_2,
+            self.conv5_3,
+            self.fc6,
+            self.fc7
+        ]
+        for l1, l2 in zip(npdict[:-1], features):
+            l2.weight.data = torch.from_numpy(l1['weight'][0]).view(l2.weight.size())
+            l2.bias.data = torch.from_numpy(l1['weight'][1]).view(l2.bias.size())

@@ -112,6 +112,7 @@ class wTrainer(object):
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
+
             if self.cuda:
                 data, target, tags = data.cuda(), target.cuda(), tags.cuda()
             data, target, tags = Variable(data, volatile=True), Variable(target), Variable(tags)
@@ -135,8 +136,6 @@ class wTrainer(object):
                 score_max_val, score_max_lbl = torch.max(score, dim=1)
                 lbl_pred = score_max_lbl.cpu().data.numpy()
                 lbl_pred_bg = lbl_pred
-                score_max_val = score_max_val.cpu().data.numpy()
-                lbl_pred_bg[score_max_val<.8] = 0
 
             imgs = data.data.cpu()
             lbl_true = target.data.cpu()
@@ -208,7 +207,7 @@ class wTrainer(object):
                 continue  # for resuming
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0 and self.iteration>0:
+            if self.iteration % self.interval_validate == 0:
                 #pdb.set_trace()
                 self.validate()
 

@@ -102,14 +102,14 @@ class Trainer(object):
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data, target) in tqdm.tqdm(
+        for batch_idx, (data, target, _) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data, volatile=True), Variable(target)
-            score = self.model(data)
+            score, _ = self.model(data)
 
             loss = cross_entropy2d(score, target,
                                    size_average=self.size_average)
@@ -175,7 +175,7 @@ class Trainer(object):
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
-        for batch_idx, (data, target) in tqdm.tqdm(
+        for batch_idx, (data, target, _) in tqdm.tqdm(
                 enumerate(self.train_loader), total=len(self.train_loader),
                 desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
             iteration = batch_idx + self.epoch * len(self.train_loader)
@@ -194,7 +194,7 @@ class Trainer(object):
             ##############################
             ### Cross-entropy loss:
             self.optim.zero_grad()
-            score = self.model(data)
+            score, _ = self.model(data)
             loss = cross_entropy2d(score, target, size_average=self.size_average)
             loss /= len(data)
             if np.isnan(float(loss.data[0])):

@@ -117,7 +117,6 @@ class wTrainer(object):
             data, target, tags = Variable(data, volatile=True), Variable(target), Variable(tags)
             score, score_w = self.model(data)
 
-            pdb.set_trace()
 
             if n_class==21:
                 upscore_w = F.upsample(score_w, score.size()[-2:], mode='bilinear')
@@ -128,7 +127,7 @@ class wTrainer(object):
                 lbl_pred = upscore_w_max_lbl.cpu().data.numpy()  # For VOC, it includes only FG classes {0,...,19}, so we add 1 to them:
                 lbl_pred_bg = lbl_pred + 1
                 upscore_w_max_val = upscore_w_max_val.cpu().data.numpy()
-                lbl_pred_bg[upscore_w_max_val<.3] = 0
+                lbl_pred_bg[upscore_w_max_val<.8] = 0
             else:
                 #score_normmax_factor = torch.max(torch.max(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
                 #score_normmin_factor = torch.min(torch.min(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
@@ -137,10 +136,14 @@ class wTrainer(object):
                 lbl_pred = score_max_lbl.cpu().data.numpy()
                 lbl_pred_bg = lbl_pred
                 score_max_val = score_max_val.cpu().data.numpy()
-                lbl_pred_bg[score_max_val<.3] = 0
+                lbl_pred_bg[score_max_val<.8] = 0
 
             imgs = data.data.cpu()
             lbl_true = target.data.cpu()
+
+            if self.iteration > 50000:
+                pdb.set_trace()
+
             for img, lt, lp in zip(imgs, lbl_true, lbl_pred_bg):
                 img, lt = self.val_loader.dataset.untransform(img, lt)
                 label_trues.append(lt)
@@ -235,8 +238,7 @@ class wTrainer(object):
                 break
 
         #pdb.set_trace()
-        print("Total training loss in this epoch: {}\n".format(total_loss))
-        print(gap_score_sig, '\n')
+        print("\nTotal training loss in this epoch: {}".format(total_loss))
 
 
     def train(self):

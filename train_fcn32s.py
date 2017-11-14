@@ -21,10 +21,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-6,
+        lr=1.0e-10,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=1464,
+        interval_validate=1000,
     )
 }
 
@@ -198,7 +198,11 @@ def main():
     if resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
 
-    trainer = torchfcn.wTrainer(
+    #########################################
+    ### For weak supervision, use torchfcn.wTrainer
+    ### For full supervision, use torchfcn.Trainer
+    ### Accordingly, the learning rate should be adjusted (e.g. 1e-5 vs 1e-10)
+    trainer = torchfcn.Trainer(
         cuda=cuda,
         model=model,
         optimizer=optim,

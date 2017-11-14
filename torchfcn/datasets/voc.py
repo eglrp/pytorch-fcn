@@ -90,21 +90,24 @@ class SiftFlowData(data.Dataset):
         mat = scipy.io.loadmat(lbl_file)
         lbl = mat['S'].astype(np.int32)
         lbl = lbl - 1
+        sparse_tags = np.unique(lbl)
+        sparse_tags = sparse_tags[sparse_tags >= 0]
+        tags = np.zeros(33)
+        tags[sparse_tags] = 1
         if self._transform:
-            return self.transform(img, lbl, img_file)
+            return self.transform(img, lbl, tags)
         else:
-            return img, lbl, img_file
+            return img, lbl, tags
 
-    def transform(self, img, lbl, img_file):
+    def transform(self, img, lbl, tags):
         img = img[:, :, ::-1]  # RGB -> BGR
         img = img.astype(np.float64)
         img -= self.mean_bgr
         img = img.transpose(2, 0, 1)
         img = torch.from_numpy(img).float()
-        lbl_small = cv2.resize(lbl, (9, 9), interpolation=cv2.INTER_NEAREST)
-        lbl_small = torch.from_numpy(lbl_small).long()
         lbl = torch.from_numpy(lbl).long()
-        return img, lbl, img_file, lbl_small
+        tags = torch.from_numpy(tags).float()
+        return img, lbl, tags
 
     def untransform(self, img, lbl):
         img = img.numpy()
@@ -176,12 +179,16 @@ class VOCClassSegBase(data.Dataset):
         lbl = PIL.Image.open(lbl_file)
         lbl = np.array(lbl, dtype=np.int32)
         lbl[lbl == 255] = -1
+        sparse_tags = np.unique(lbl)
+        sparse_tags = sparse_tags[sparse_tags > 0]
+        tags = np.zeros(20)
+        tags[sparse_tags-1] = 1
         if self._transform:
-            return self.transform(img, lbl)
+            return self.transform(img, lbl, tags)
         else:
-            return img, lbl
+            return img, lbl, tags
 
-    def transform(self, img, lbl):
+    def transform(self, img, lbl, tags):
         img = img[:, :, ::-1]  # RGB -> BGR
         img = img.astype(np.float64)
         #img = cv2.resize(img, (321, 321), interpolation=cv2.INTER_CUBIC)
@@ -190,7 +197,8 @@ class VOCClassSegBase(data.Dataset):
         img = img.transpose(2, 0, 1)
         img = torch.from_numpy(img).float()
         lbl = torch.from_numpy(lbl).long()
-        return img, lbl
+        tags = torch.from_numpy(tags).float()
+        return img, lbl, tags
 
     def untransform(self, img, lbl):
         img = img.numpy()
@@ -262,10 +270,14 @@ class SBDClassSeg(VOCClassSegBase):
         mat = scipy.io.loadmat(lbl_file)
         lbl = mat['GTcls'][0]['Segmentation'][0].astype(np.int32)
         lbl[lbl == 255] = -1
+        sparse_tags = np.unique(lbl)
+        sparse_tags = sparse_tags[sparse_tags > 0]
+        tags = np.zeros(20)
+        tags[sparse_tags-1] = 1
         if self._transform:
-            return self.transform(img, lbl)
+            return self.transform(img, lbl, tags)
         else:
-            return img, lbl
+            return img, lbl, tags
 
 
 class CamVid(data.Dataset):
@@ -317,12 +329,16 @@ class CamVid(data.Dataset):
         lbl = PIL.Image.open(lbl_file)
         lbl = np.array(lbl, dtype=np.int32)
         lbl[lbl == 11] = -1
+        sparse_tags = np.unique(lbl)
+        sparse_tags = sparse_tags[sparse_tags >= 0]
+        tags = np.zeros(11)
+        tags[sparse_tags] = 1
         if self._transform:
-            return self.transform(img, lbl)
+            return self.transform(img, lbl, tags)
         else:
-            return img, lbl
+            return img, lbl, tags
 
-    def transform(self, img, lbl):
+    def transform(self, img, lbl, tags):
         img = img[:, :, ::-1]  # RGB -> BGR
         img = img.astype(np.float64)
         #img = cv2.resize(img, (321, 321), interpolation=cv2.INTER_CUBIC)
@@ -331,7 +347,8 @@ class CamVid(data.Dataset):
         img = img.transpose(2, 0, 1)
         img = torch.from_numpy(img).float()
         lbl = torch.from_numpy(lbl).long()
-        return img, lbl
+        tags = torch.from_numpy(tags).float()
+        return img, lbl, tags
 
     def untransform(self, img, lbl):
         img = img.numpy()

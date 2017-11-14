@@ -21,10 +21,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-10,
+        lr=1.0e-6,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=1000,
+        interval_validate=1464,
     )
 }
 
@@ -149,7 +149,7 @@ def main():
     #########################################
     # 2. model and dataset
 
-    CAMVID = 1
+    CAMVID = 0
     SIFTFLOW = 0
     ## If both the above are zero, VOC data is chosen by default.
 
@@ -194,10 +194,11 @@ def main():
         lr=cfg['lr'],
         momentum=cfg['momentum'],
         weight_decay=cfg['weight_decay'])
+
     if resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
 
-    trainer = torchfcn.Trainer(
+    trainer = torchfcn.wTrainer(
         cuda=cuda,
         model=model,
         optimizer=optim,

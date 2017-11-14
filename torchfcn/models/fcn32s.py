@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import pdb
+import torch.nn.init as init
 
 
 # https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/surgery.py
@@ -92,15 +93,53 @@ class FCN32s(nn.Module):
         self.drop7 = nn.Dropout2d()
 
         self.score_fr = nn.Conv2d(4096, n_class, 1)
-        self.upscore = nn.ConvTranspose2d(n_class, n_class, 64, stride=32,
-                                          bias=False)
+        self.upscore = nn.ConvTranspose2d(n_class, n_class, 64, stride=32,bias=False)
+        self.upscore_w = nn.Conv2d(n_class, n_class-1, 1)
+
+        self.features = nn.Sequential(
+            self.conv1_1,
+            self.relu1_1,
+            self.conv1_2,
+            self.relu1_2,
+            self.pool1,
+
+            self.conv2_1,
+            self.relu2_1,
+            self.conv2_2,
+            self.relu2_2,
+            self.pool2,
+
+            self.conv3_1,
+            self.relu3_1,
+            self.conv3_2,
+            self.relu3_2,
+            self.conv3_3,
+            self.relu3_3,
+            self.pool3,
+
+            self.conv4_1,
+            self.relu4_1,
+            self.conv4_2,
+            self.relu4_2,
+            self.conv4_3,
+            self.relu4_3,
+            self.pool4,
+
+            self.conv5_1,
+            self.relu5_1,
+            self.conv5_2,
+            self.relu5_2,
+            self.conv5_3,
+            self.relu5_3,
+            self.pool5,
+        )
 
         self._initialize_weights()
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                m.weight.data.zero_()
+                init.xavier_normal(m.weight)
                 if m.bias is not None:
                     m.bias.data.zero_()
             if isinstance(m, nn.ConvTranspose2d):
@@ -110,29 +149,7 @@ class FCN32s(nn.Module):
                 m.weight.data.copy_(initial_weight)
 
     def forward(self, x):
-        h = x
-        h = self.relu1_1(self.conv1_1(h))
-        h = self.relu1_2(self.conv1_2(h))
-        h = self.pool1(h)
-
-        h = self.relu2_1(self.conv2_1(h))
-        h = self.relu2_2(self.conv2_2(h))
-        h = self.pool2(h)
-
-        h = self.relu3_1(self.conv3_1(h))
-        h = self.relu3_2(self.conv3_2(h))
-        h = self.relu3_3(self.conv3_3(h))
-        h = self.pool3(h)
-
-        h = self.relu4_1(self.conv4_1(h))
-        h = self.relu4_2(self.conv4_2(h))
-        h = self.relu4_3(self.conv4_3(h))
-        h = self.pool4(h)
-
-        h = self.relu5_1(self.conv5_1(h))
-        h = self.relu5_2(self.conv5_2(h))
-        h = self.relu5_3(self.conv5_3(h))
-        h = self.pool5(h)
+        h = self.features(x)
 
         h = self.relu6(self.fc6(h))
         h = self.drop6(h)
@@ -142,10 +159,13 @@ class FCN32s(nn.Module):
 
         h = self.score_fr(h)
 
+        hw = self.upscore_w(h)
+
         h = self.upscore(h)
         h = h[:, :, 19:19 + x.size()[2], 19:19 + x.size()[3]].contiguous()
 
-        return h
+
+        return h, hw
 
     def copy_params_from_vgg16(self, vgg16):
         features = [

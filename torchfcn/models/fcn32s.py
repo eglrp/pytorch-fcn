@@ -4,8 +4,6 @@ import fcn
 import numpy as np
 import torch
 import torch.nn as nn
-import pdb
-import torch.nn.init as init
 
 
 # https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/surgery.py
@@ -26,10 +24,9 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
 
 
 class FCN32s(nn.Module):
+    # pretrained_model = osp.expanduser('~/data/models/pytorch/fcn32s_from_caffe.pth')
 
-    #pretrained_model = osp.expanduser('~/data/models/pytorch/fcn32s_from_caffe.pth')
 
-    
     @classmethod
     def download(cls):
         return fcn.data.cached_download(
@@ -37,7 +34,6 @@ class FCN32s(nn.Module):
             path=cls.pretrained_model,
             md5='8acf386d722dc3484625964cbe2aba49',
         )
-    
 
     def __init__(self, n_class=21):
         super(FCN32s, self).__init__()
@@ -139,7 +135,8 @@ class FCN32s(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                init.xavier_normal(m.weight)
+                #m.weight.data.zero_()
+                m.weight.data.normal_(0.0, 0.0001)
                 if m.bias is not None:
                     m.bias.data.zero_()
             if isinstance(m, nn.ConvTranspose2d):
@@ -163,7 +160,6 @@ class FCN32s(nn.Module):
 
         h = self.upscore(h)
         h = h[:, :, 19:19 + x.size()[2], 19:19 + x.size()[3]].contiguous()
-
 
         return h, hw
 

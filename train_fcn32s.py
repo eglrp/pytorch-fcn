@@ -21,10 +21,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-6,
+        lr=1.0e-10,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=2488,
+        interval_validate=500,
     )
 }
 
@@ -150,7 +150,7 @@ def main():
     # 2. model and dataset
 
     CAMVID = 0
-    SIFTFLOW = 1
+    SIFTFLOW = 0
     ## If both the above are zero, VOC data is chosen by default.
 
     if CAMVID:
@@ -169,12 +169,12 @@ def main():
         start_epoch = checkpoint['epoch']
         start_iteration = checkpoint['iteration']
     else:
-        #vgg16 = torchfcn.models.VGG16(pretrained=True)
-        #model.copy_params_from_vgg16(vgg16)
+        vgg16 = torchfcn.models.VGG16(pretrained=True)
+        model.copy_params_from_vgg16(vgg16)
 
         ##npdicts = caffe_to_numpy('./models/deploy_vgg16_imagenet1000.prototxt', './models/vgg16_imagenet1000.caffemodel')
-        npdicts = pickle.load(open('saved.p', 'r')) # saved.p is the pickled layer weights of the official pre-trained vgg16 that I extracted using caffe_to_numpy.py
-        model.copy_params_from_numpydict(npdicts)
+        #npdicts = pickle.load(open('saved.p', 'r')) # saved.p is the pickled layer weights of the official pre-trained vgg16 that I extracted using caffe_to_numpy.py
+        #model.copy_params_from_numpydict(npdicts)
 
     #########################################
     #########################################
@@ -202,7 +202,7 @@ def main():
     ### For weak supervision, use torchfcn.wTrainer
     ### For full supervision, use torchfcn.Trainer
     ### Accordingly, the learning rate should be adjusted (e.g. 1e-5 vs 1e-10)
-    trainer = torchfcn.wTrainer(
+    trainer = torchfcn.Trainer(
         cuda=cuda,
         model=model,
         optimizer=optim,

@@ -186,6 +186,7 @@ class Trainer(object):
             if self.iteration % self.interval_validate == 0 and self.iteration>0:
                 #pdb.set_trace()
                 self.validate()
+                self.model.train()
 
             if self.cuda:
                 data, target = data.cuda(), target.cuda()

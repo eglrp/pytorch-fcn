@@ -21,10 +21,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-10,
+        lr=1.0e-5,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=500,
+        interval_validate=1464,
     )
 }
 
@@ -65,6 +65,7 @@ def get_parameters(model, bias=False):
         torchfcn.models.FCN32s,
         torchfcn.models.FCN16s,
         torchfcn.models.FCN8s,
+        torchfcn.models.Attention,
     )
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
@@ -161,11 +162,13 @@ def main():
         val_loader = val_loader_siftflow
 
     model = torchfcn.models.FCN32s(n_class=len(train_loader.dataset.class_names))
+    model_att = torchfcn.models.Attention(n_class=len(train_loader.dataset.class_names))
     start_epoch = 0
     start_iteration = 0
     if resume:
         checkpoint = torch.load(resume)
         model.load_state_dict(checkpoint['model_state_dict'])
+        model_att.load_state_dict(checkpoint['model_att_state_dict'])
         start_epoch = checkpoint['epoch']
         start_iteration = checkpoint['iteration']
     else:
@@ -182,14 +185,16 @@ def main():
 
     if cuda:
         model = model.cuda()
+        model_att = model_att.cuda()
 
     # 3. optimizer
 
     optim = torch.optim.SGD(
         [
             {'params': get_parameters(model, bias=False)},
-            {'params': get_parameters(model, bias=True),
-             'lr': cfg['lr'] * 2, 'weight_decay': 0},
+            {'params': get_parameters(model, bias=True), 'lr': cfg['lr'] * 2, 'weight_decay': 0},
+            {'params': get_parameters(model_att, bias=False)},
+            {'params': get_parameters(model_att, bias=True), 'lr': cfg['lr'] * 2, 'weight_decay': 0},
         ],
         lr=cfg['lr'],
         momentum=cfg['momentum'],
@@ -202,9 +207,9 @@ def main():
     ### For weak supervision, use torchfcn.wTrainer
     ### For full supervision, use torchfcn.Trainer
     ### Accordingly, the learning rate should be adjusted (e.g. 1e-5 vs 1e-10)
-    trainer = torchfcn.Trainer(
+    trainer = torchfcn.wTrainer(
         cuda=cuda,
-        model=model,
+        model=(model, model_att),
         optimizer=optim,
         train_loader=train_loader,
         val_loader=val_loader,

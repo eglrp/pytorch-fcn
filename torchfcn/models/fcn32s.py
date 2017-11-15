@@ -4,6 +4,7 @@ import fcn
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 
 
 # https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/surgery.py
@@ -90,7 +91,6 @@ class FCN32s(nn.Module):
 
         self.score_fr = nn.Conv2d(4096, n_class, 1)
         self.upscore = nn.ConvTranspose2d(n_class, n_class, 64, stride=32,bias=False)
-        self.upscore_w = nn.Conv2d(n_class, n_class-1, 1)
 
         self.features = nn.Sequential(
             self.conv1_1,
@@ -136,6 +136,7 @@ class FCN32s(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #m.weight.data.zero_()
+                #init.xavier_normal(m.weight)
                 m.weight.data.normal_(0.0, 0.0001)
                 if m.bias is not None:
                     m.bias.data.zero_()
@@ -156,7 +157,7 @@ class FCN32s(nn.Module):
 
         h = self.score_fr(h)
 
-        hw = self.upscore_w(h)
+        hw = h
 
         h = self.upscore(h)
         h = h[:, :, 19:19 + x.size()[2], 19:19 + x.size()[3]].contiguous()
@@ -217,3 +218,23 @@ class FCN32s(nn.Module):
         for l1, l2 in zip(npdict[:-1], features):
             l2.weight.data = torch.from_numpy(l1['weight'][0]).view(l2.weight.size())
             l2.bias.data = torch.from_numpy(l1['weight'][1]).view(l2.bias.size())
+
+class Attention(nn.Module):
+
+    def __init__(self, n_class=21):
+        super(Attention, self).__init__()
+        self.upscore_w = nn.Conv2d(n_class, n_class-1, 1)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                #m.weight.data.zero_()
+                init.xavier_normal(m.weight)
+                #m.weight.data.normal_(0.0, 0.0001)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+    def forward(self, x):
+        hw = self.upscore_w(x)
+        return hw

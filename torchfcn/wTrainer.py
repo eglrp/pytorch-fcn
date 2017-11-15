@@ -51,14 +51,14 @@ class wTrainer(object):
                  size_average=False, interval_validate=None):
         self.cuda = cuda
 
+        self.model, self.model_att = model
+        self.optim = optimizer
+
         #########################################
         # Conv features are not trained for weakly supervised
-        for param in model.features.parameters():
+        for param in self.model.features.parameters():
             param.requires_grad = False
         #########################################
-
-        self.model = model
-        self.optim = optimizer
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -102,6 +102,7 @@ class wTrainer(object):
 
     def validate(self):
         self.model.eval()
+        self.model_att.eval()
 
         n_class = len(self.val_loader.dataset.class_names)
 
@@ -117,6 +118,7 @@ class wTrainer(object):
                 data, target, tags = data.cuda(), target.cuda(), tags.cuda()
             data, target, tags = Variable(data, volatile=True), Variable(target), Variable(tags)
             score, score_w = self.model(data)
+            score_w = self.model_att(score_w)
 
 
             if n_class==21:
@@ -181,8 +183,10 @@ class wTrainer(object):
             'epoch': self.epoch,
             'iteration': self.iteration,
             'arch': self.model.__class__.__name__,
+            'arch_att': self.model_att.__class__.__name__,
             'optim_state_dict': self.optim.state_dict(),
             'model_state_dict': self.model.state_dict(),
+            'model_att_state_dict': self.model_att.state_dict(),
             'best_mean_iu': self.best_mean_iu,
         }, osp.join(self.out, 'checkpoint.pth.tar'))
         if is_best:
@@ -191,6 +195,7 @@ class wTrainer(object):
 
     def train_epoch(self):
         self.model.train()
+        self.model_att.train()
 
         n_class = len(self.train_loader.dataset.class_names)
 
@@ -207,9 +212,11 @@ class wTrainer(object):
                 continue  # for resuming
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0:
+            if self.iteration % self.interval_validate == 0 and self.iteration>0:
                 #pdb.set_trace()
                 self.validate()
+                self.model.train()
+                self.model_att.train()
 
             if self.cuda:
                 data, target, tags = data.cuda(), target.cuda(), tags.cuda()
@@ -219,6 +226,7 @@ class wTrainer(object):
             ### Cross-entropy loss:
             self.optim.zero_grad()
             score, score_w = self.model(data)
+            score_w = self.model_att(score_w)
 
             if n_class==21:
                 gap_score = F.avg_pool2d(score_w, kernel_size=(score_w.size()[-2], score_w.size()[-1])).squeeze(-1).squeeze(-1)

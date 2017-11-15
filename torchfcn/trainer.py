@@ -51,7 +51,7 @@ class Trainer(object):
                  size_average=False, interval_validate=None):
         self.cuda = cuda
 
-        self.model = model
+        self.model, _ = model
         self.optim = optimizer
 
         self.train_loader = train_loader

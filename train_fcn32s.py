@@ -21,10 +21,10 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-5,
+        lr=1.0e-10,
         momentum=0.99,
         weight_decay=0.0005,
-        interval_validate=1464,
+        interval_validate=500,
     )
 }
 
@@ -122,6 +122,12 @@ def main():
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(root, split='seg11valid', transform=True),
         batch_size=1, shuffle=False, **kwargs)
+    # ---- OR ---:
+    """
+    val_loader = torch.utils.data.DataLoader(
+        torchfcn.datasets.VOC2012ClassSeg(root, split='val', transform=True),
+        batch_size=1, shuffle=False, **kwargs)
+    """
 
     #### SIFT-FLOW
     train_loader_siftflow = torch.utils.data.DataLoader(
@@ -204,10 +210,11 @@ def main():
         optim.load_state_dict(checkpoint['optim_state_dict'])
 
     #########################################
-    ### For weak supervision, use torchfcn.wTrainer
-    ### For full supervision, use torchfcn.Trainer
-    ### Accordingly, the learning rate should be adjusted (e.g. 1e-5 vs 1e-10)
-    trainer = torchfcn.wTrainer(
+    ### For training the attention model, use torchfcn.wTrainer (lr=1e-5)
+    ### For full supervision, use torchfcn.Trainer (lr=1e-10)
+    ### For full supervision using the attention localization cues, use tagSupTrainer
+
+    trainer = torchfcn.tagSupTrainer(
         cuda=cuda,
         model=(model, model_att),
         optimizer=optim,

@@ -19,6 +19,7 @@ import torchfcn
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import pdb
+import pickle
 
 
 def cross_entropy2d(input, target, weight=None, size_average=True):
@@ -44,21 +45,15 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
     return loss
 
 
-class wTrainer(object):
+class tagSupTrainer(object):
     def __init__(self, cuda, model, optimizer,
                  train_loader, val_loader, out,
                  max_iter,
                  size_average=False, interval_validate=None):
         self.cuda = cuda
 
-        self.model, self.model_att = model
+        self.model, _ = model
         self.optim = optimizer
-
-        #########################################
-        # Conv features are not trained for weakly supervised
-        for param in self.model.features.parameters():
-            param.requires_grad = False
-        #########################################
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -102,61 +97,30 @@ class wTrainer(object):
 
     def validate(self):
         self.model.eval()
-        self.model_att.eval()
 
         n_class = len(self.val_loader.dataset.class_names)
 
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data, target, tags) in tqdm.tqdm(
+        for batch_idx, (data, target, _) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
                 desc='Valid iteration=%d' % self.iteration, ncols=80,
                 leave=False):
-
             if self.cuda:
-                data, target, tags = data.cuda(), target.cuda(), tags.cuda()
-            data, target, tags = Variable(data, volatile=True), Variable(target), Variable(tags)
-            score, score_w = self.model(data)
-            score_w = self.model_att(score_w)
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data, volatile=True), Variable(target)
+            score, _ = self.model(data)
 
-
-            if n_class==21:
-                upscore_w = F.upsample(score_w, score.size()[-2:], mode='bilinear')
-                score_normmin_factor = \
-                torch.min(torch.min(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
-                upscore_w.data = upscore_w.data - score_normmin_factor
-                score_normmax_factor = \
-                torch.max(torch.max(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
-                upscore_w.data = upscore_w.data / score_normmax_factor
-
-                nontags = (1 - tags).data.nonzero()[:, 1]
-                upscore_w[:, nontags, :, :] = -100
-
-                upscore_w_max_val, upscore_w_max_lbl = torch.max(upscore_w, dim=1)
-                lbl_pred = upscore_w_max_lbl.cpu().data.numpy()  # For VOC, it includes only FG classes {0,...,19}, so we add 1 to them:
-                lbl_pred_bg = lbl_pred + 1
-                upscore_w_max_val = upscore_w_max_val.data.cpu().numpy()
-                upscore_w_max_val = upscore_w_max_val / upscore_w_max_val.max()
-                # pdb.set_trace()
-
-                lbl_pred_bg[upscore_w_max_val < .3] = 0
-            else:
-                #score_normmax_factor = torch.max(torch.max(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
-                #score_normmin_factor = torch.min(torch.min(upscore_w.data, dim=-1, keepdim=True)[0], dim=-2, keepdim=True)[0] + 1e-10
-                #score_norm = (upscore_w.data - score_normmin_factor) / score_normmax_factor
-                upscore_w_max_val, score_max_lbl = torch.max(score, dim=1)
-                upscore_w_max_val = upscore_w_max_val / upscore_w_max_val.max()
-                lbl_pred = score_max_lbl.cpu().data.numpy()
-                lbl_pred_bg = lbl_pred
+            loss = cross_entropy2d(score, target, size_average=self.size_average)
+            if np.isnan(float(loss.data[0])):
+                raise ValueError('loss is nan while validating')
+            val_loss += float(loss.data[0]) / len(data)
 
             imgs = data.data.cpu()
+            lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
             lbl_true = target.data.cpu()
-
-            if self.iteration > 50000:
-                pdb.set_trace()
-
-            for img, lt, lp in zip(imgs, lbl_true, lbl_pred_bg):
+            for img, lt, lp in zip(imgs, lbl_true, lbl_pred):
                 img, lt = self.val_loader.dataset.untransform(img, lt)
                 label_trues.append(lt)
                 label_preds.append(lp)
@@ -194,10 +158,8 @@ class wTrainer(object):
             'epoch': self.epoch,
             'iteration': self.iteration,
             'arch': self.model.__class__.__name__,
-            'arch_att': self.model_att.__class__.__name__,
             'optim_state_dict': self.optim.state_dict(),
             'model_state_dict': self.model.state_dict(),
-            'model_att_state_dict': self.model_att.state_dict(),
             'best_mean_iu': self.best_mean_iu,
         }, osp.join(self.out, 'checkpoint.pth.tar'))
         if is_best:
@@ -206,11 +168,10 @@ class wTrainer(object):
 
     def train_epoch(self):
         self.model.train()
-        self.model_att.train()
 
         n_class = len(self.train_loader.dataset.class_names)
 
-        total_loss = 0
+        pgts = pickle.load(open('pgts.p', 'r'))
 
         #########################################
         ### An epoch over the fully-labeled data:
@@ -227,26 +188,19 @@ class wTrainer(object):
                 #pdb.set_trace()
                 self.validate()
                 self.model.train()
-                self.model_att.train()
+
+            target = torch.from_numpy(pgts[batch_idx].astype(np.int64))
 
             if self.cuda:
-                data, target, tags = data.cuda(), target.cuda(), tags.cuda()
-            data, target, tags = Variable(data), Variable(target), Variable(tags)
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
 
             ##############################
             ### Cross-entropy loss:
             self.optim.zero_grad()
-            score, score_w = self.model(data)
-            score_w = self.model_att(score_w)
-
-            if n_class==21:
-                gap_score = F.avg_pool2d(score_w, kernel_size=(score_w.size()[-2], score_w.size()[-1])).squeeze(-1).squeeze(-1)
-            else:
-                gap_score = F.avg_pool2d(score, kernel_size=(score.size()[-2], score.size()[-1])).squeeze(-1).squeeze(-1)
-            gap_score_sig = nn.Sigmoid()(gap_score)
-            loss = F.binary_cross_entropy(gap_score_sig, tags, size_average=self.size_average)
+            score, _ = self.model(data)
+            loss = cross_entropy2d(score, target, size_average=self.size_average)
             loss /= len(data)
-            total_loss += loss.data
             if np.isnan(float(loss.data[0])):
                 raise ValueError('loss is nan while training')
             loss.backward()
@@ -254,9 +208,6 @@ class wTrainer(object):
 
             if self.iteration >= self.max_iter:
                 break
-
-        #pdb.set_trace()
-        print("\nTotal training loss in this epoch: {}".format(total_loss))
 
 
     def train(self):

@@ -19,6 +19,7 @@ import torchfcn
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import pdb
+import pickle
 
 
 def cross_entropy2d(input, target, weight=None, size_average=True):
@@ -93,6 +94,15 @@ class Trainer(object):
         self.iteration = 0
         self.max_iter = max_iter
         self.best_mean_iu = 0
+
+        #####################################
+        ### Point-wise supervision
+        self.NUM_GT_POINTS = 10
+        self.PICKED_POINTS_FILE = 'picked_points_{}.p'.format(self.NUM_GT_POINTS)
+        self.total_picked_points = []
+        if os.path.exists(self.PICKED_POINTS_FILE):
+            self.total_picked_points = pickle.load(open(self.PICKED_POINTS_FILE, 'r'))
+        #####################################
 
     def validate(self):
         self.model.eval()
@@ -171,7 +181,6 @@ class Trainer(object):
 
         n_class = len(self.train_loader.dataset.class_names)
 
-
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
@@ -187,6 +196,36 @@ class Trainer(object):
                 #pdb.set_trace()
                 self.validate()
                 self.model.train()
+
+            if target.numpy().max()==-1:
+                continue
+
+            #############################################
+            ### Point-wise Supervision:
+            if 1:
+                labels = target.numpy()
+                lbl_list = np.unique(labels[labels>=0])
+
+                if not os.path.exists(self.PICKED_POINTS_FILE):
+                    labels_points = -np.ones_like(labels)
+                    picked_points = []
+                    for i,l in enumerate(lbl_list):
+                        total_points = np.where(labels==l)
+                        indices = np.random.randint(total_points[0].shape[0], size=self.NUM_GT_POINTS)
+                        points = zip(total_points[1][indices], total_points[2][indices])
+                        picked_points.append(points)
+                        for n in range(self.NUM_GT_POINTS):
+                            labels_points[0, points[n][0], points[n][1]] = l
+                    self.total_picked_points.append(picked_points)
+                else:
+                    picked_points = self.total_picked_points[batch_idx]
+                    labels_points = -np.ones_like(labels)
+                    for i,l in enumerate(lbl_list):
+                        points = picked_points[i]
+                        for n in range(self.NUM_GT_POINTS):
+                            labels_points[0, points[n][0], points[n][1]] = l
+                target = torch.from_numpy(labels_points.astype(np.int64))
+            #############################################
 
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
@@ -205,6 +244,9 @@ class Trainer(object):
 
             if self.iteration >= self.max_iter:
                 break
+
+        if not os.path.exists(self.PICKED_POINTS_FILE):
+            pickle.dump(self.total_picked_points, open(self.PICKED_POINTS_FILE, 'w'))
 
 
     def train(self):

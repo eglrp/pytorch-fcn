@@ -21,7 +21,7 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-6,
+        lr=1.0e-10,
         momentum=0.99,
         weight_decay=0.0005,
         interval_validate=500,
@@ -214,7 +214,7 @@ def main():
     ### For full supervision, use torchfcn.Trainer (lr=1e-10)
     ### For full supervision using the attention localization cues, use tagSupTrainer
 
-    trainer = torchfcn.Trainer(
+    trainer = torchfcn.tagSupTrainer(
         cuda=cuda,
         model=(model, model_att),
         optimizer=optim,

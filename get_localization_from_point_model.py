@@ -22,6 +22,9 @@ import matplotlib.pyplot as plt
 import pdb
 import pickle
 
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_softmax, create_pairwise_bilateral, create_pairwise_gaussian
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -114,6 +117,8 @@ def main():
     model.eval()
     pgts = []
     pgts_conf = []
+    n_class = len(train_loader.dataset.class_names)
+    label_trues, label_preds = [], []
 
     for batch_idx, (data, target, tags) in tqdm.tqdm(
             enumerate(train_loader), total=len(train_loader), desc='Get training localizations', ncols=80, leave=False):
@@ -121,14 +126,50 @@ def main():
             data = data.cuda()
         data = Variable(data, volatile=True)
         score, score_w = model(data)
-        lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
-        bad_lbls = np.unique(lbl_pred)
+        ######################
+        ### Applying DenseCRF:
+
+        score_forcrf = score[0].cpu().data.numpy()
+        #score_forcrf = np.exp(score_forcrf-score_forcrf.max())
+        score_forcrf = score_forcrf / score_forcrf.max(axis=0)
+        d = dcrf.DenseCRF2D(data.size()[3], data.size()[2], n_class)
+        unary = unary_from_softmax(score_forcrf)
+
+        bad_lbls = np.arange(n_class)
         ok_lbls = np.unique(target.numpy())
         for l in bad_lbls:
             if not l in ok_lbls:
-                lbl_pred[lbl_pred==l] = -1
+                unary[l, :] = unary.max()
+        d.setUnaryEnergy(unary)
+        img = np.ascontiguousarray(data.cpu().data.numpy()[0].transpose(1,2,0), dtype=np.uint8)
+        d.addPairwiseGaussian(sxy=(3, 3), compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
+        d.addPairwiseBilateral(sxy=(80, 80), srgb=(13, 13, 13), rgbim=img,
+                               compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
+        Q = d.inference(3)
+        MAP = np.argmax(Q, axis=0)
+        lcrf = MAP.reshape((img.shape[0], img.shape[1]))
+        lbl_pred = np.expand_dims(lcrf, axis=0)
+
+        """
+        bad_lbls = np.arange(n_class)
+        ok_lbls = np.unique(target.numpy())
+        for l in bad_lbls:
+            if not l in ok_lbls:
+                score[0, l, :] = 1e-10
+        lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
+        """
+
+        ####################
+        ### Evaluating the localization maps:
+        for lt, lp in zip(target.numpy(), lbl_pred):
+            label_trues.append(lt)
+            label_preds.append(lp)
+
         pgts.append(lbl_pred.astype(np.int8))
         #pgts_conf.append((100*upscore_w_max_val).astype(np.int8))
+
+    metrics = torchfcn.utils.label_accuracy_score(label_trues, label_preds, n_class)
+    print(metrics)
 
     pickle.dump(pgts, open('pgts.p', 'w'))
 

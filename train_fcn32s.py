@@ -21,7 +21,7 @@ configurations = {
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     1: dict(
         max_iteration=150000,
-        lr=1.0e-10,
+        lr=1.0e-6,
         momentum=0.99,
         weight_decay=0.0005,
         interval_validate=500,
@@ -104,7 +104,7 @@ def main():
 
     torch.manual_seed(1337)
     if cuda:
-        torch.cuda.manual_seed(1337)
+        torch.cuda.manual_seed_all(1337)
 
     # 1. dataset
 
@@ -174,7 +174,7 @@ def main():
     if resume:
         checkpoint = torch.load(resume)
         model.load_state_dict(checkpoint['model_state_dict'])
-        model_att.load_state_dict(checkpoint['model_att_state_dict'])
+        #model_att.load_state_dict(checkpoint['model_att_state_dict'])
         start_epoch = checkpoint['epoch']
         start_iteration = checkpoint['iteration']
     else:
@@ -214,7 +214,7 @@ def main():
     ### For full supervision, use torchfcn.Trainer (lr=1e-10)
     ### For full supervision using the attention localization cues, use tagSupTrainer
 
-    trainer = torchfcn.tagSupTrainer(
+    trainer = torchfcn.Trainer(
         cuda=cuda,
         model=(model, model_att),
         optimizer=optim,

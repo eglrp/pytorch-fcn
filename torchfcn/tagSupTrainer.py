@@ -95,6 +95,8 @@ class tagSupTrainer(object):
         self.max_iter = max_iter
         self.best_mean_iu = 0
 
+        self.pgts = pickle.load(open('pgts.p', 'r'))
+
     def validate(self):
         self.model.eval()
 
@@ -171,8 +173,6 @@ class tagSupTrainer(object):
 
         n_class = len(self.train_loader.dataset.class_names)
 
-        pgts = pickle.load(open('pgts.p', 'r'))
-
         #########################################
         ### An epoch over the fully-labeled data:
         #########################################
@@ -189,7 +189,7 @@ class tagSupTrainer(object):
                 self.validate()
                 self.model.train()
 
-            target = torch.from_numpy(pgts[batch_idx].astype(np.int64))
+            target = torch.from_numpy(self.pgts[batch_idx].astype(np.int64))
 
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
